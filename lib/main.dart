@@ -32,12 +32,16 @@ import 'core/utils/video_fullscreen.dart';
 import 'services/desktop_service.dart';
 import 'router/app_router.dart';
 import 'presentation/widgets/toast_helper.dart';
+import 'src/rust/frb_generated.dart' show RustSyncApi;
 
 final RouteObserver<PageRoute> routeObserver = RouteObserver<PageRoute>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   UploadForegroundService.initCommunicationPort();
+
+  // 初始化 Flutter Rust Bridge
+  await RustSyncApi.init();
 
   // 捕获 flutter_cache_manager 在 Windows 上删除缓存文件时的文件占用异常
   // 该异常是后台异步抛出的，无法通过 try-catch 拦截，需绑定错误处理器静默忽略

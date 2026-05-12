@@ -11,132 +11,183 @@ import 'dart:ffi' as ffi;
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_io.dart';
 
+abstract class RustSyncApiApiImplPlatform extends BaseApiImpl<RustSyncApiWire> {
+  RustSyncApiApiImplPlatform({
+    required super.handler,
+    required super.wire,
+    required super.generalizedFrbRustBinding,
+    required super.portManager,
+  });
 
+  @protected
+  String dco_decode_String(dynamic raw);
 
+  @protected
+  bool dco_decode_bool(dynamic raw);
 
-                abstract class RustSyncApiApiImplPlatform extends BaseApiImpl<RustSyncApiWire> {
-                  RustSyncApiApiImplPlatform({
-                    required super.handler,
-                    required super.wire,
-                    required super.generalizedFrbRustBinding,
-                    required super.portManager,
-                  });
+  @protected
+  SyncConfigFfi dco_decode_box_autoadd_sync_config_ffi(dynamic raw);
 
-                  
+  @protected
+  CloudAlbumCheckResultFfi dco_decode_cloud_album_check_result_ffi(dynamic raw);
 
-                  @protected String dco_decode_String(dynamic raw);
+  @protected
+  List<String> dco_decode_list_String(dynamic raw);
 
-@protected bool dco_decode_bool(dynamic raw);
+  @protected
+  Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
-@protected SyncConfigFfi dco_decode_box_autoadd_sync_config_ffi(dynamic raw);
+  @protected
+  String? dco_decode_opt_String(dynamic raw);
 
-@protected CloudAlbumCheckResultFfi dco_decode_cloud_album_check_result_ffi(dynamic raw);
+  @protected
+  SyncConfigFfi dco_decode_sync_config_ffi(dynamic raw);
 
-@protected List<String> dco_decode_list_String(dynamic raw);
+  @protected
+  SyncErrorFfi dco_decode_sync_error_ffi(dynamic raw);
 
-@protected Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
+  @protected
+  SyncStatusFfi dco_decode_sync_status_ffi(dynamic raw);
 
-@protected String? dco_decode_opt_String(dynamic raw);
+  @protected
+  SyncSummaryFfi dco_decode_sync_summary_ffi(dynamic raw);
 
-@protected SyncConfigFfi dco_decode_sync_config_ffi(dynamic raw);
+  @protected
+  int dco_decode_u_32(dynamic raw);
 
-@protected SyncErrorFfi dco_decode_sync_error_ffi(dynamic raw);
+  @protected
+  BigInt dco_decode_u_64(dynamic raw);
 
-@protected SyncStatusFfi dco_decode_sync_status_ffi(dynamic raw);
+  @protected
+  int dco_decode_u_8(dynamic raw);
 
-@protected SyncSummaryFfi dco_decode_sync_summary_ffi(dynamic raw);
+  @protected
+  void dco_decode_unit(dynamic raw);
 
-@protected int dco_decode_u_32(dynamic raw);
+  @protected
+  String sse_decode_String(SseDeserializer deserializer);
 
-@protected BigInt dco_decode_u_64(dynamic raw);
+  @protected
+  bool sse_decode_bool(SseDeserializer deserializer);
 
-@protected int dco_decode_u_8(dynamic raw);
+  @protected
+  SyncConfigFfi sse_decode_box_autoadd_sync_config_ffi(
+    SseDeserializer deserializer,
+  );
 
-@protected void dco_decode_unit(dynamic raw);
+  @protected
+  CloudAlbumCheckResultFfi sse_decode_cloud_album_check_result_ffi(
+    SseDeserializer deserializer,
+  );
 
-@protected String sse_decode_String(SseDeserializer deserializer);
+  @protected
+  List<String> sse_decode_list_String(SseDeserializer deserializer);
 
-@protected bool sse_decode_bool(SseDeserializer deserializer);
+  @protected
+  Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
-@protected SyncConfigFfi sse_decode_box_autoadd_sync_config_ffi(SseDeserializer deserializer);
+  @protected
+  String? sse_decode_opt_String(SseDeserializer deserializer);
 
-@protected CloudAlbumCheckResultFfi sse_decode_cloud_album_check_result_ffi(SseDeserializer deserializer);
+  @protected
+  SyncConfigFfi sse_decode_sync_config_ffi(SseDeserializer deserializer);
 
-@protected List<String> sse_decode_list_String(SseDeserializer deserializer);
+  @protected
+  SyncErrorFfi sse_decode_sync_error_ffi(SseDeserializer deserializer);
 
-@protected Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
+  @protected
+  SyncStatusFfi sse_decode_sync_status_ffi(SseDeserializer deserializer);
 
-@protected String? sse_decode_opt_String(SseDeserializer deserializer);
+  @protected
+  SyncSummaryFfi sse_decode_sync_summary_ffi(SseDeserializer deserializer);
 
-@protected SyncConfigFfi sse_decode_sync_config_ffi(SseDeserializer deserializer);
+  @protected
+  int sse_decode_u_32(SseDeserializer deserializer);
 
-@protected SyncErrorFfi sse_decode_sync_error_ffi(SseDeserializer deserializer);
+  @protected
+  BigInt sse_decode_u_64(SseDeserializer deserializer);
 
-@protected SyncStatusFfi sse_decode_sync_status_ffi(SseDeserializer deserializer);
+  @protected
+  int sse_decode_u_8(SseDeserializer deserializer);
 
-@protected SyncSummaryFfi sse_decode_sync_summary_ffi(SseDeserializer deserializer);
+  @protected
+  void sse_decode_unit(SseDeserializer deserializer);
 
-@protected int sse_decode_u_32(SseDeserializer deserializer);
+  @protected
+  int sse_decode_i_32(SseDeserializer deserializer);
 
-@protected BigInt sse_decode_u_64(SseDeserializer deserializer);
+  @protected
+  void sse_encode_String(String self, SseSerializer serializer);
 
-@protected int sse_decode_u_8(SseDeserializer deserializer);
+  @protected
+  void sse_encode_bool(bool self, SseSerializer serializer);
 
-@protected void sse_decode_unit(SseDeserializer deserializer);
+  @protected
+  void sse_encode_box_autoadd_sync_config_ffi(
+    SyncConfigFfi self,
+    SseSerializer serializer,
+  );
 
-@protected int sse_decode_i_32(SseDeserializer deserializer);
+  @protected
+  void sse_encode_cloud_album_check_result_ffi(
+    CloudAlbumCheckResultFfi self,
+    SseSerializer serializer,
+  );
 
-@protected void sse_encode_String(String self, SseSerializer serializer);
+  @protected
+  void sse_encode_list_String(List<String> self, SseSerializer serializer);
 
-@protected void sse_encode_bool(bool self, SseSerializer serializer);
+  @protected
+  void sse_encode_list_prim_u_8_strict(
+    Uint8List self,
+    SseSerializer serializer,
+  );
 
-@protected void sse_encode_box_autoadd_sync_config_ffi(SyncConfigFfi self, SseSerializer serializer);
+  @protected
+  void sse_encode_opt_String(String? self, SseSerializer serializer);
 
-@protected void sse_encode_cloud_album_check_result_ffi(CloudAlbumCheckResultFfi self, SseSerializer serializer);
+  @protected
+  void sse_encode_sync_config_ffi(SyncConfigFfi self, SseSerializer serializer);
 
-@protected void sse_encode_list_String(List<String> self, SseSerializer serializer);
+  @protected
+  void sse_encode_sync_error_ffi(SyncErrorFfi self, SseSerializer serializer);
 
-@protected void sse_encode_list_prim_u_8_strict(Uint8List self, SseSerializer serializer);
+  @protected
+  void sse_encode_sync_status_ffi(SyncStatusFfi self, SseSerializer serializer);
 
-@protected void sse_encode_opt_String(String? self, SseSerializer serializer);
+  @protected
+  void sse_encode_sync_summary_ffi(
+    SyncSummaryFfi self,
+    SseSerializer serializer,
+  );
 
-@protected void sse_encode_sync_config_ffi(SyncConfigFfi self, SseSerializer serializer);
+  @protected
+  void sse_encode_u_32(int self, SseSerializer serializer);
 
-@protected void sse_encode_sync_error_ffi(SyncErrorFfi self, SseSerializer serializer);
+  @protected
+  void sse_encode_u_64(BigInt self, SseSerializer serializer);
 
-@protected void sse_encode_sync_status_ffi(SyncStatusFfi self, SseSerializer serializer);
+  @protected
+  void sse_encode_u_8(int self, SseSerializer serializer);
 
-@protected void sse_encode_sync_summary_ffi(SyncSummaryFfi self, SseSerializer serializer);
+  @protected
+  void sse_encode_unit(void self, SseSerializer serializer);
 
-@protected void sse_encode_u_32(int self, SseSerializer serializer);
-
-@protected void sse_encode_u_64(BigInt self, SseSerializer serializer);
-
-@protected void sse_encode_u_8(int self, SseSerializer serializer);
-
-@protected void sse_encode_unit(void self, SseSerializer serializer);
-
-@protected void sse_encode_i_32(int self, SseSerializer serializer);
-                }
-                
-
+  @protected
+  void sse_encode_i_32(int self, SseSerializer serializer);
+}
 
 // Section: wire_class
 
+class RustSyncApiWire implements BaseWire {
+  factory RustSyncApiWire.fromExternalLibrary(ExternalLibrary lib) =>
+      RustSyncApiWire(lib.ffiDynamicLibrary);
 
-        class RustSyncApiWire implements BaseWire {
+  /// Holds the symbol lookup function.
+  final ffi.Pointer<T> Function<T extends ffi.NativeType>(String symbolName)
+  _lookup;
 
-            factory RustSyncApiWire.fromExternalLibrary(ExternalLibrary lib) =>
-              RustSyncApiWire(lib.ffiDynamicLibrary);
-        
-            /// Holds the symbol lookup function.
-            final ffi.Pointer<T> Function<T extends ffi.NativeType>(String symbolName)
-                _lookup;
-  
-            /// The symbols are looked up in [dynamicLibrary].
-            RustSyncApiWire(ffi.DynamicLibrary dynamicLibrary)
-                : _lookup = dynamicLibrary.lookup;
-
-            
-        }
-        
+  /// The symbols are looked up in [dynamicLibrary].
+  RustSyncApiWire(ffi.DynamicLibrary dynamicLibrary)
+    : _lookup = dynamicLibrary.lookup;
+}
