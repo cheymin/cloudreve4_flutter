@@ -598,20 +598,209 @@ impl SyncEngine {
         Ok(())
     }
 
-    /// 持续同步
+    /// 持续同步：双事件源驱动 (SSE + 本地文件监听)
     pub async fn run_continuous(&self) -> Result<()> {
-        let _event_handler = EventHandler::new(
+        let event_handler = EventHandler::new(
             self.api.clone(),
             uuid::Uuid::new_v4().to_string(),
+        );
+
+        // 订阅远程 SSE 事件
+        let mut remote_rx = event_handler.subscribe_sse(&self.config.remote_root).await?;
+
+        // 启动本地文件监听 (notify)
+        let local_root = self.config.local_root.clone();
+        let (local_tx, mut local_rx) = tokio::sync::mpsc::channel::<LocalFileEvent>(256);
+        let shutdown_clone = self.shutdown_token.clone();
+
+        std::thread::spawn(move || {
+            use notify::{RecommendedWatcher, RecursiveMode, Event, EventKind};
+            use notify::Watcher;
+
+            let (notify_tx, notify_rx) = std::sync::mpsc::channel::<notify::Result<Event>>();
+
+            let mut watcher = match RecommendedWatcher::new(
+                move |res: notify::Result<Event>| { let _ = notify_tx.send(res); },
+                notify::Config::default().with_poll_interval(std::time::Duration::from_secs(2)),
+            ) {
+                Ok(w) => w,
+                Err(e) => {
+                    tracing::error!("无法启动文件监听: {}", e);
+                    return;
+                }
+            };
+
+            if let Err(e) = watcher.watch(&local_root, RecursiveMode::Recursive) {
+                tracing::error!("文件监听启动失败: {}", e);
+                return;
+            }
+
+            tracing::info!("本地文件监听已启动: {}", local_root.display());
+
+            // 事件去重缓冲
+            let mut created_buf: Vec<std::path::PathBuf> = Vec::new();
+            let mut modified_buf: Vec<std::path::PathBuf> = Vec::new();
+            let mut deleted_buf: Vec<std::path::PathBuf> = Vec::new();
+
+            loop {
+                if shutdown_clone.is_cancelled() {
+                    break;
+                }
+
+                match notify_rx.recv_timeout(std::time::Duration::from_millis(500)) {
+                    Ok(Ok(event)) => {
+                        // 忽略 .sync_tmp 临时文件
+                        let paths: Vec<_> = event.paths.iter()
+                            .filter(|p| {
+                                !p.extension().map(|e| e == "sync_tmp").unwrap_or(false)
+                            })
+                            .cloned()
+                            .collect();
+
+                        if paths.is_empty() {
+                            continue;
+                        }
+
+                        match event.kind {
+                            EventKind::Create(_) => created_buf.extend(paths),
+                            EventKind::Modify(_) => modified_buf.extend(paths),
+                            EventKind::Remove(_) => deleted_buf.extend(paths),
+                            _ => {}
+                        }
+                    }
+                    Ok(Err(e)) => {
+                        tracing::warn!("文件监听错误: {}", e);
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                }
+
+                // 批量发送缓冲的事件
+                if !created_buf.is_empty() {
+                    let _ = local_tx.blocking_send(LocalFileEvent::Created(std::mem::take(&mut created_buf)));
+                }
+                if !modified_buf.is_empty() {
+                    let _ = local_tx.blocking_send(LocalFileEvent::Modified(std::mem::take(&mut modified_buf)));
+                }
+                if !deleted_buf.is_empty() {
+                    let _ = local_tx.blocking_send(LocalFileEvent::Deleted(std::mem::take(&mut deleted_buf)));
+                }
+            }
+
+            let _ = watcher.unwatch(&local_root);
+            tracing::info!("本地文件监听已停止");
+        });
+
+        *self.state.write().await = SyncState::Continuous;
+        tracing::info!("持续同步已启动");
+
+        let mut debounce = crate::event_handler::EventDebouncer::new(
+            std::time::Duration::from_millis(500),
         );
 
         loop {
             tokio::select! {
                 _ = self.shutdown_token.cancelled() => {
+                    tracing::info!("持续同步收到停止信号");
                     break;
                 }
-                _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => {
-                    tracing::debug!("持续同步心跳...");
+
+                // 本地文件变化
+                Some(event) = local_rx.recv() => {
+                    for path in event.paths() {
+                        if !debounce.should_process(path) {
+                            continue;
+                        }
+
+                        let relative = path.strip_prefix(&self.config.local_root)
+                            .unwrap_or(path)
+                            .to_string_lossy()
+                            .to_string();
+
+                        match &event {
+                            LocalFileEvent::Created(_) | LocalFileEvent::Modified(_) => {
+                                tracing::debug!("本地上传: {}", relative);
+                                if let Ok(metadata) = tokio::fs::metadata(path).await {
+                                    let size = metadata.len();
+                                    let mtime_ms = metadata.modified().ok()
+                                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                                        .map(|d| d.as_millis() as i64)
+                                        .unwrap_or(0);
+                                    let quick_hash = crate::utils::quick_hash(path, size).await.unwrap_or_default();
+
+                                    let action = SyncAction {
+                                        relative_path: relative.clone(),
+                                        local_entry: Some(LocalFileEntry {
+                                            relative_path: std::path::PathBuf::from(&relative),
+                                            size,
+                                            mtime_ms,
+                                            quick_hash,
+                                            is_dir: metadata.is_dir(),
+                                        }),
+                                        remote_entry: None,
+                                        db_mapping: None,
+                                    };
+
+                                    let root_id = self.sync_root_id.clone().unwrap_or_default();
+                                    if let Err(e) = self.execute_upload(&root_id, &action).await {
+                                        tracing::error!("持续同步上传失败 {}: {}", relative, e);
+                                    }
+                                }
+                            }
+                            LocalFileEvent::Deleted(_) => {
+                                tracing::debug!("本地删除，删除远程: {}", relative);
+                                let remote_uri = format!("{}/{}", self.config.remote_root, relative);
+                                if let Err(e) = self.api.delete_files(&[&remote_uri]).await {
+                                    tracing::error!("持续同步删除远程失败 {}: {}", relative, e);
+                                }
+                            }
+                        }
+                    }
+                    debounce.cleanup();
+                }
+
+                // 远程文件变化
+                Some(event) = remote_rx.recv() => {
+                    match &event {
+                        RemoteFileEvent::Created(remote) | RemoteFileEvent::Modified(remote) => {
+                            let relative = remote_relative_path(
+                                &self.config.remote_root,
+                                &remote.path,
+                                &remote.name,
+                                remote.is_dir,
+                            );
+                            tracing::debug!("远程下载: {}", relative);
+
+                            let action = SyncAction {
+                                relative_path: relative.clone(),
+                                local_entry: None,
+                                remote_entry: Some(remote.clone()),
+                                db_mapping: None,
+                            };
+
+                            let root_id = self.sync_root_id.clone().unwrap_or_default();
+                            if let Err(e) = self.execute_download(&root_id, &action).await {
+                                tracing::error!("持续同步下载失败 {}: {}", relative, e);
+                            }
+                        }
+                        RemoteFileEvent::Deleted { uri, name } => {
+                            let relative = remote_relative_path(
+                                &self.config.remote_root,
+                                uri,
+                                name,
+                                false,
+                            );
+                            tracing::debug!("远程删除，删除本地: {}", relative);
+                            let local_path = self.config.local_root.join(&relative);
+                            let _ = tokio::fs::remove_file(&local_path).await;
+                        }
+                    }
+                }
+
+                // 定期心跳
+                _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
+                    tracing::debug!("持续同步心跳");
+                    debounce.cleanup();
                 }
             }
         }

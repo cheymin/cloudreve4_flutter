@@ -35,7 +35,11 @@ impl ApiClient {
         *self.access_token.write().await = token;
     }
 
-    async fn token(&self) -> String {
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
+    pub async fn token(&self) -> String {
         self.access_token.read().await.clone()
     }
 

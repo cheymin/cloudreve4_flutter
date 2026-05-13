@@ -29,6 +29,7 @@ r2d2_sqlite = "0.25"
 walkdir = "2"
 sha2 = "0.10"
 hex = "0.4"
+notify = "7"
 
 # 错误处理
 thiserror = { workspace = true }
@@ -61,7 +62,6 @@ windows = { version = "0.58", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 sync-linux = { path = "../sync-linux", optional = true }
-notify = { version = "7", optional = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 sync-android = { path = "../sync-android", optional = true }
@@ -70,5 +70,5 @@ jni = { version = "0.21", optional = true }
 [features]
 default = []
 windows-cfapi = ["sync-windows", "windows"]
-linux-notify = ["sync-linux", "notify"]
+linux-notify = ["sync-linux"]
 android-media = ["sync-android", "jni"]
