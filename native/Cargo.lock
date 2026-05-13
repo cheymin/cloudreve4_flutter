@@ -2308,9 +2308,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "serde",
+ "serde_json",
  "thiserror 2.0.18",
  "tokio 1.52.3",
  "tracing",
+ "uuid",
  "windows",
 ]
 

@@ -463,7 +463,7 @@ impl SyncEngine {
         Ok(summary)
     }
 
-    /// 上传单个文件
+    /// 上传单个文件（含重试）
     async fn execute_upload(&self, root_id: &str, action: &SyncAction) -> Result<()> {
         let local = action.local_entry.as_ref().ok_or_else(|| {
             SyncError::Internal("上传操作缺少本地文件信息".into())
@@ -491,30 +491,52 @@ impl SyncEngine {
 
         let local_path = self.config.local_root.join(&local.relative_path);
         let parent_uri = self.config.remote_root.clone();
+        let max_retries = 3u32;
 
-        // 创建上传会话
-        let session = self.api.create_upload_session(&parent_uri, local.size).await?;
-
-        // 读取文件并分片上传
+        // 读取文件
         let data = tokio::fs::read(&local_path).await?;
+
+        // 带重试的上传
+        let session = self.retry_upload_session(&parent_uri, local.size, max_retries).await?;
         let chunk_size = session.chunk_size as usize;
         let mut index = 0u32;
 
         for chunk in data.chunks(chunk_size) {
-            self.api.upload_chunk(&session.session_id, index, chunk).await?;
+            let mut chunk_retries = 0u32;
+            loop {
+                match self.api.upload_chunk(&session.session_id, index, chunk).await {
+                    Ok(_) => break,
+                    Err(SyncError::Auth(_)) => return Err(SyncError::Auth("Token 过期".into())),
+                    Err(e) if chunk_retries < max_retries => {
+                        chunk_retries += 1;
+                        let delay = crate::utils::retry_delay_ms(chunk_retries, 1000, 30000);
+                        tracing::warn!("分片上传失败，{}ms后重试 ({}): {}", delay, chunk_retries, e);
+                        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
             index += 1;
         }
 
-        // 更新数据库映射
+        // 上传完成后获取远程文件信息
         let remote_uri = format!("{}/{}", parent_uri, action.relative_path);
+        let (remote_file_id, remote_hash) = match self.api.get_file_info(&remote_uri).await {
+            Ok(info) => (info.file_id.clone(), info.hash.clone()),
+            Err(e) => {
+                tracing::warn!("上传后获取文件信息失败: {}", e);
+                (None, None)
+            }
+        };
+
         self.db.upsert_file_mapping(&FileMapping {
             id: 0,
             sync_root_id: root_id.to_string(),
             local_path: local.relative_path.clone(),
             remote_uri,
-            remote_file_id: None,
+            remote_file_id,
             local_hash: Some(local.quick_hash.clone()),
-            remote_hash: Some(local.quick_hash.clone()),
+            remote_hash: remote_hash.or(Some(local.quick_hash.clone())),
             local_mtime: Some(local.mtime_ms),
             remote_mtime: Some(local.mtime_ms),
             local_size: Some(local.size),
@@ -527,7 +549,7 @@ impl SyncEngine {
         Ok(())
     }
 
-    /// 下载单个文件
+    /// 下载单个文件（含重试）
     async fn execute_download(&self, root_id: &str, action: &SyncAction) -> Result<()> {
         let remote = action.remote_entry.as_ref().ok_or_else(|| {
             SyncError::Internal("下载操作缺少远程文件信息".into())
@@ -546,56 +568,131 @@ impl SyncEngine {
             tokio::fs::create_dir_all(parent).await?;
         }
 
-        // 获取下载 URL
-        let urls = self.api.get_download_url(&[&remote.uri]).await?;
-        let download_url = urls.first().ok_or_else(|| {
-            SyncError::Network("未获取到下载链接".into())
-        })?;
+        let max_retries = 3u32;
+        let mut attempt = 0u32;
 
-        // 流式下载
-        let resp = self.api.stream_download(download_url, 0).await?;
-        let tmp_path = local_path.with_extension(".sync_tmp");
+        loop {
+            attempt += 1;
 
-        {
-            let mut file = tokio::fs::File::create(&tmp_path).await?;
-            use tokio::io::AsyncWriteExt;
-            let mut stream = resp.bytes_stream();
-            use futures_util::StreamExt;
-            while let Some(chunk) = stream.next().await {
-                let chunk = chunk.map_err(|e| SyncError::Network(e.to_string()))?;
-                file.write_all(&chunk).await?;
+            // 获取下载 URL
+            let urls = match self.api.get_download_url(&[&remote.uri]).await {
+                Ok(urls) => urls,
+                Err(SyncError::Auth(_)) => return Err(SyncError::Auth("Token 过期".into())),
+                Err(e) if attempt <= max_retries => {
+                    let delay = crate::utils::retry_delay_ms(attempt, 1000, 30000);
+                    tracing::warn!("获取下载链接失败，{}ms后重试 ({}): {}", delay, attempt, e);
+                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                    continue;
+                }
+                Err(e) => return Err(e),
+            };
+
+            let download_url = match urls.first() {
+                Some(u) => u.clone(),
+                None => return Err(SyncError::Network("未获取到下载链接".into())),
+            };
+
+            // 流式下载
+            let resp = match self.api.stream_download(&download_url, 0).await {
+                Ok(r) => r,
+                Err(SyncError::Auth(_)) => return Err(SyncError::Auth("Token 过期".into())),
+                Err(e) if attempt <= max_retries => {
+                    let delay = crate::utils::retry_delay_ms(attempt, 1000, 30000);
+                    tracing::warn!("下载连接失败，{}ms后重试 ({}): {}", delay, attempt, e);
+                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                    continue;
+                }
+                Err(e) => return Err(e),
+            };
+
+            let tmp_path = local_path.with_extension(".sync_tmp");
+
+            match self.stream_to_file(resp, &tmp_path).await {
+                Ok(_) => {
+                    // 原子重命名
+                    tokio::fs::rename(&tmp_path, &local_path).await?;
+
+                    // 设置修改时间
+                    if remote.mtime_ms > 0 {
+                        let mtime = std::time::UNIX_EPOCH + std::time::Duration::from_millis(remote.mtime_ms as u64);
+                        let _ = filetime::set_file_mtime(&local_path, filetime::FileTime::from_system_time(mtime.into()));
+                    }
+
+                    // 更新数据库映射
+                    let local_hash = crate::utils::quick_hash(&local_path, remote.size).await.unwrap_or_default();
+                    self.db.upsert_file_mapping(&FileMapping {
+                        id: 0,
+                        sync_root_id: root_id.to_string(),
+                        local_path: std::path::PathBuf::from(&action.relative_path),
+                        remote_uri: remote.uri.clone(),
+                        remote_file_id: remote.file_id.clone(),
+                        local_hash: Some(local_hash.clone()),
+                        remote_hash: remote.hash.clone().or(Some(local_hash)),
+                        local_mtime: Some(remote.mtime_ms),
+                        remote_mtime: Some(remote.mtime_ms),
+                        local_size: Some(remote.size),
+                        remote_size: Some(remote.size),
+                        sync_status: SyncFileStatus::Synced,
+                        is_placeholder: false,
+                    }).await?;
+
+                    tracing::debug!("下载完成: {}", action.relative_path);
+                    return Ok(());
+                }
+                Err(e) if attempt <= max_retries => {
+                    let delay = crate::utils::retry_delay_ms(attempt, 1000, 30000);
+                    tracing::warn!("下载写入失败，{}ms后重试 ({}): {}", delay, attempt, e);
+                    let _ = tokio::fs::remove_file(&tmp_path).await;
+                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                    continue;
+                }
+                Err(e) => {
+                    let _ = tokio::fs::remove_file(&tmp_path).await;
+                    return Err(e);
+                }
             }
         }
+    }
 
-        // 原子重命名
-        tokio::fs::rename(&tmp_path, &local_path).await?;
-
-        // 设置修改时间
-        if remote.mtime_ms > 0 {
-            let mtime = std::time::UNIX_EPOCH + std::time::Duration::from_millis(remote.mtime_ms as u64);
-            let _ = filetime::set_file_mtime(&local_path, filetime::FileTime::from_system_time(mtime.into()));
+    /// 流式写入文件
+    async fn stream_to_file(
+        &self,
+        resp: reqwest::Response,
+        tmp_path: &std::path::Path,
+    ) -> Result<()> {
+        let mut file = tokio::fs::File::create(tmp_path).await?;
+        use tokio::io::AsyncWriteExt;
+        let mut stream = resp.bytes_stream();
+        use futures_util::StreamExt;
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| SyncError::Network(e.to_string()))?;
+            file.write_all(&chunk).await?;
         }
-
-        // 更新数据库映射
-        let local_hash = crate::utils::quick_hash(&local_path, remote.size).await.unwrap_or_default();
-        self.db.upsert_file_mapping(&FileMapping {
-            id: 0,
-            sync_root_id: root_id.to_string(),
-            local_path: std::path::PathBuf::from(&action.relative_path),
-            remote_uri: remote.uri.clone(),
-            remote_file_id: remote.file_id.clone(),
-            local_hash: Some(local_hash.clone()),
-            remote_hash: remote.hash.clone().or(Some(local_hash)),
-            local_mtime: Some(remote.mtime_ms),
-            remote_mtime: Some(remote.mtime_ms),
-            local_size: Some(remote.size),
-            remote_size: Some(remote.size),
-            sync_status: SyncFileStatus::Synced,
-            is_placeholder: false,
-        }).await?;
-
-        tracing::debug!("下载完成: {}", action.relative_path);
+        file.flush().await?;
         Ok(())
+    }
+
+    /// 带重试的创建上传会话
+    async fn retry_upload_session(
+        &self,
+        parent_uri: &str,
+        file_size: u64,
+        max_retries: u32,
+    ) -> Result<UploadSession> {
+        let mut attempt = 0u32;
+        loop {
+            attempt += 1;
+            match self.api.create_upload_session(parent_uri, file_size).await {
+                Ok(session) => return Ok(session),
+                Err(SyncError::Auth(_)) => return Err(SyncError::Auth("Token 过期".into())),
+                Err(e) if attempt <= max_retries => {
+                    let delay = crate::utils::retry_delay_ms(attempt, 1000, 30000);
+                    tracing::warn!("创建上传会话失败，{}ms后重试 ({}): {}", delay, attempt, e);
+                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                }
+                Err(e) => return Err(e),
+            }
+        }
     }
 
     /// 持续同步：双事件源驱动 (SSE + 本地文件监听)
@@ -875,8 +972,72 @@ impl SyncEngine {
             .filter(|p| !synced.contains_key(*p))
             .collect();
 
-        for photo_path in &new_photos {
-            tracing::info!("上传照片: {}", photo_path);
+        let total = new_photos.len();
+        if total == 0 {
+            tracing::info!("相册同步: 无新照片");
+            return Ok(());
+        }
+
+        tracing::info!("相册同步: 发现 {} 张新照片", total);
+
+        for (i, photo_path) in new_photos.iter().enumerate() {
+            let local_path = Path::new(photo_path);
+            let file_name = local_path.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| format!("photo_{}", i));
+
+            match tokio::fs::metadata(photo_path).await {
+                Ok(metadata) => {
+                    let file_size = metadata.len();
+
+                    // 创建上传会话
+                    match self.api.create_upload_session(remote_dcim_uri, file_size).await {
+                        Ok(session) => {
+                            // 读取文件并分片上传
+                            match tokio::fs::read(photo_path).await {
+                                Ok(data) => {
+                                    let chunk_size = session.chunk_size as usize;
+                                    let mut index = 0u32;
+                                    let mut upload_ok = true;
+
+                                    for chunk in data.chunks(chunk_size) {
+                                        if let Err(e) = self.api.upload_chunk(&session.session_id, index, chunk).await {
+                                            tracing::error!("上传分片失败 {}: {}", file_name, e);
+                                            upload_ok = false;
+                                            break;
+                                        }
+                                        index += 1;
+                                    }
+
+                                    if upload_ok {
+                                        let remote_uri = format!("{}/{}", remote_dcim_uri, file_name);
+                                        let hash = crate::utils::quick_hash(local_path, file_size).await.unwrap_or_default();
+
+                                        if let Err(e) = self.db.add_album_sync_record(
+                                            photo_path,
+                                            &remote_uri,
+                                            &hash,
+                                        ).await {
+                                            tracing::warn!("记录同步状态失败: {}", e);
+                                        }
+
+                                        tracing::info!("照片上传完成 ({}/{}): {}", i + 1, total, file_name);
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::error!("读取照片失败 {}: {}", file_name, e);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!("创建上传会话失败 {}: {}", file_name, e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("无法读取照片元数据 {}: {}", photo_path, e);
+                }
+            }
         }
 
         Ok(())
