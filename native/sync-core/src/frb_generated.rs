@@ -246,6 +246,7 @@ return crate::api::ffi_types::CloudAlbumCheckResultFfi{dcim_exists: var_dcimExis
                     // Codec=Sse (Serialization based), see doc to use other codecs
                     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {let mut var_baseUrl = <String>::sse_decode(deserializer);
 let mut var_accessToken = <String>::sse_decode(deserializer);
+let mut var_refreshToken = <String>::sse_decode(deserializer);
 let mut var_localRoot = <String>::sse_decode(deserializer);
 let mut var_remoteRoot = <String>::sse_decode(deserializer);
 let mut var_syncMode = <String>::sse_decode(deserializer);
@@ -254,7 +255,8 @@ let mut var_maxConcurrentTransfers = <u32>::sse_decode(deserializer);
 let mut var_bandwidthLimitKbps = <u64>::sse_decode(deserializer);
 let mut var_excludedPaths = <Vec<String>>::sse_decode(deserializer);
 let mut var_selectiveDirs = <Vec<String>>::sse_decode(deserializer);
-return crate::api::ffi_types::SyncConfigFfi{base_url: var_baseUrl, access_token: var_accessToken, local_root: var_localRoot, remote_root: var_remoteRoot, sync_mode: var_syncMode, conflict_strategy: var_conflictStrategy, max_concurrent_transfers: var_maxConcurrentTransfers, bandwidth_limit_kbps: var_bandwidthLimitKbps, excluded_paths: var_excludedPaths, selective_dirs: var_selectiveDirs};}
+let mut var_dataDir = <String>::sse_decode(deserializer);
+return crate::api::ffi_types::SyncConfigFfi{base_url: var_baseUrl, access_token: var_accessToken, refresh_token: var_refreshToken, local_root: var_localRoot, remote_root: var_remoteRoot, sync_mode: var_syncMode, conflict_strategy: var_conflictStrategy, max_concurrent_transfers: var_maxConcurrentTransfers, bandwidth_limit_kbps: var_bandwidthLimitKbps, excluded_paths: var_excludedPaths, selective_dirs: var_selectiveDirs, data_dir: var_dataDir};}
                 }
                 
                 impl SseDecode for crate::api::ffi_types::SyncErrorFfi {
@@ -393,6 +395,7 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::ffi_types::CloudAlbumCheckRes
                     [
                     self.base_url.into_into_dart().into_dart(),
 self.access_token.into_into_dart().into_dart(),
+self.refresh_token.into_into_dart().into_dart(),
 self.local_root.into_into_dart().into_dart(),
 self.remote_root.into_into_dart().into_dart(),
 self.sync_mode.into_into_dart().into_dart(),
@@ -400,7 +403,8 @@ self.conflict_strategy.into_into_dart().into_dart(),
 self.max_concurrent_transfers.into_into_dart().into_dart(),
 self.bandwidth_limit_kbps.into_into_dart().into_dart(),
 self.excluded_paths.into_into_dart().into_dart(),
-self.selective_dirs.into_into_dart().into_dart()
+self.selective_dirs.into_into_dart().into_dart(),
+self.data_dir.into_into_dart().into_dart()
                 ].into_dart()
                 }
             }
@@ -519,6 +523,7 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::ffi_types::SyncSummaryFfi> fo
                     // Codec=Sse (Serialization based), see doc to use other codecs
                     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {<String>::sse_encode(self.base_url, serializer);
 <String>::sse_encode(self.access_token, serializer);
+<String>::sse_encode(self.refresh_token, serializer);
 <String>::sse_encode(self.local_root, serializer);
 <String>::sse_encode(self.remote_root, serializer);
 <String>::sse_encode(self.sync_mode, serializer);
@@ -526,7 +531,8 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::ffi_types::SyncSummaryFfi> fo
 <u32>::sse_encode(self.max_concurrent_transfers, serializer);
 <u64>::sse_encode(self.bandwidth_limit_kbps, serializer);
 <Vec<String>>::sse_encode(self.excluded_paths, serializer);
-<Vec<String>>::sse_encode(self.selective_dirs, serializer);}
+<Vec<String>>::sse_encode(self.selective_dirs, serializer);
+<String>::sse_encode(self.data_dir, serializer);}
                 }
                 
                 impl SseEncode for crate::api::ffi_types::SyncErrorFfi {

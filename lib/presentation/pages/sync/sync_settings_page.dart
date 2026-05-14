@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../../core/constants/sync_defaults.dart';
 import '../../../data/models/sync_config_model.dart';
@@ -32,6 +33,22 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     _localRootController = TextEditingController(
       text: SyncDefaults.defaultLocalRoot(),
     );
+
+    // 从持久化配置恢复 UI 状态
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final sync = context.read<SyncProvider>();
+      final config = sync.persistedConfig;
+      if (config != null) {
+        setState(() {
+          _localRootController.text = config.localRoot;
+          _remoteRoot = config.remoteRoot;
+          _syncMode = config.syncMode;
+          _conflictStrategy = config.conflictStrategy;
+          _maxConcurrent = config.maxConcurrentTransfers;
+          _bandwidthLimitKbps = config.bandwidthLimitKbps;
+        });
+      }
+    });
   }
 
   @override
@@ -223,7 +240,9 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
             child: Text(
               sync.totalFiles > 0
                   ? '${sync.syncedFiles} / ${sync.totalFiles} 文件'
-                  : '正在扫描...',
+                  : sync.state == SyncState.continuous
+                      ? '持续同步中'
+                      : '正在同步...',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ),
@@ -249,6 +268,8 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
                 _summaryChip('下载', sync.lastSummary!.downloaded),
                 _summaryChip('冲突', sync.lastSummary!.conflicts),
                 _summaryChip('跳过', sync.lastSummary!.skipped),
+                _summaryChip('删本地', sync.lastSummary!.deletedLocal),
+                _summaryChip('删远程', sync.lastSummary!.deletedRemote),
               ],
             ),
           ),
@@ -482,15 +503,19 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
       return;
     }
 
+    final appSupportDir = await getApplicationSupportDirectory();
+
     final config = SyncConfigModel(
       baseUrl: server.baseUrl,
       accessToken: token.accessToken,
+      refreshToken: token.refreshToken,
       localRoot: _localRootController.text,
       remoteRoot: _remoteRoot,
       syncMode: _syncMode,
       conflictStrategy: _conflictStrategy,
       maxConcurrentTransfers: _maxConcurrent,
       bandwidthLimitKbps: _bandwidthLimitKbps,
+      dataDir: appSupportDir.path,
     );
 
     await sync.startSync(config);

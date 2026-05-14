@@ -36,7 +36,7 @@ impl SyncDb {
             std::fs::create_dir_all(parent)?;
         }
 
-        let write_conn = Connection::open(db_path)?;
+        let mut write_conn = Connection::open(db_path)?;
         write_conn.execute_batch(
             "PRAGMA journal_mode=WAL;
              PRAGMA busy_timeout=5000;
@@ -45,22 +45,21 @@ impl SyncDb {
              PRAGMA temp_store=MEMORY;",
         )?;
 
+        Self::run_migrations(&write_conn)?;
+
         let manager = SqliteConnectionManager::file(db_path);
         let read_pool = r2d2::Pool::builder()
             .max_size(4)
             .connection_customizer(Box::new(SyncDbConnectionCustomizer))
             .build(manager)?;
 
-        let db = Self {
+        Ok(Self {
             write_conn: Mutex::new(write_conn),
             read_pool,
-        };
-        db.run_migrations()?;
-        Ok(db)
+        })
     }
 
-    fn run_migrations(&self) -> Result<()> {
-        let conn = self.write_conn.blocking_lock();
+    fn run_migrations(conn: &Connection) -> Result<()> {
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS sync_root (
                 id              TEXT PRIMARY KEY,
@@ -148,7 +147,6 @@ impl SyncDb {
     // ===== sync_root 操作 =====
 
     pub async fn upsert_sync_root(&self, root: &SyncConfig) -> Result<String> {
-        let id = uuid::Uuid::new_v4().to_string();
         let local_path = root.local_root.to_string_lossy().to_string();
         let now = chrono::Utc::now().to_rfc3339();
         let sync_mode = match root.sync_mode {
@@ -158,12 +156,31 @@ impl SyncDb {
         };
 
         let conn = self.write_conn.lock().await;
-        conn.execute(
-            "INSERT OR REPLACE INTO sync_root (id, local_path, remote_uri, sync_mode, enabled, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, 1, ?5, ?5)",
-            rusqlite::params![id, local_path, root.remote_root, sync_mode, now],
-        )?;
-        Ok(id)
+
+        // 先查找是否已存在
+        let existing_id: Option<String> = conn.query_row(
+            "SELECT id FROM sync_root WHERE local_path = ?1",
+            rusqlite::params![local_path],
+            |row| row.get(0),
+        ).ok();
+
+        if let Some(id) = existing_id {
+            // 更新已有记录，保留 id 和 created_at
+            conn.execute(
+                "UPDATE sync_root SET remote_uri = ?1, sync_mode = ?2, updated_at = ?3 WHERE id = ?4",
+                rusqlite::params![root.remote_root, sync_mode, now, id],
+            )?;
+            Ok(id)
+        } else {
+            // 新建记录
+            let id = uuid::Uuid::new_v4().to_string();
+            conn.execute(
+                "INSERT INTO sync_root (id, local_path, remote_uri, sync_mode, enabled, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, 1, ?5, ?5)",
+                rusqlite::params![id, local_path, root.remote_root, sync_mode, now],
+            )?;
+            Ok(id)
+        }
     }
 
     // ===== file_mapping 操作 =====
@@ -213,7 +230,7 @@ impl SyncDb {
         let conn = self.write_conn.lock().await;
         let now = chrono::Utc::now().to_rfc3339();
         let status_str = sync_status_str(&mapping.sync_status);
-        let local_path = mapping.local_path.to_string_lossy().to_string();
+        let local_path = crate::utils::normalize_path(&mapping.local_path.to_string_lossy());
         let is_placeholder = if mapping.is_placeholder { 1 } else { 0 };
 
         conn.execute(
@@ -248,6 +265,19 @@ impl SyncDb {
             rusqlite::params![sync_root_id, local_path],
         )?;
         Ok(rows > 0)
+    }
+
+    /// 删除指定目录前缀下的所有文件映射（含目录自身）
+    pub async fn delete_file_mapping_prefix(&self, sync_root_id: &str, dir_prefix: &str) -> Result<u64> {
+        let conn = self.write_conn.lock().await;
+        // 匹配: dir_prefix 自身、dir_prefix/... 子路径
+        let exact = dir_prefix;
+        let child_prefix = format!("{}/", dir_prefix);
+        let rows = conn.execute(
+            "DELETE FROM file_mapping WHERE sync_root_id = ?1 AND (local_path = ?2 OR local_path LIKE ?3 || '%')",
+            rusqlite::params![sync_root_id, exact, child_prefix],
+        )?;
+        Ok(rows as u64)
     }
 
     // ===== transfer_queue 操作 =====

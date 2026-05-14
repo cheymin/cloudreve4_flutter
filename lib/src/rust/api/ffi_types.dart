@@ -8,208 +8,149 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'ffi_types.freezed.dart';
 
-// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `SyncEventFfi`
+            // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `SyncEventFfi`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
-/// Android: 云端相册目录检查结果
-class CloudAlbumCheckResultFfi {
-  final bool dcimExists;
-  final bool picturesExists;
-  final String? dcimUri;
-  final String? picturesUri;
 
-  const CloudAlbumCheckResultFfi({
-    required this.dcimExists,
-    required this.picturesExists,
-    this.dcimUri,
-    this.picturesUri,
-  });
+            
 
-  @override
-  int get hashCode =>
-      dcimExists.hashCode ^
-      picturesExists.hashCode ^
-      dcimUri.hashCode ^
-      picturesUri.hashCode;
+            /// Android: 云端相册目录检查结果
+class CloudAlbumCheckResultFfi  {
+                final bool dcimExists;
+final bool picturesExists;
+final String? dcimUri;
+final String? picturesUri;
 
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is CloudAlbumCheckResultFfi &&
-          runtimeType == other.runtimeType &&
-          dcimExists == other.dcimExists &&
-          picturesExists == other.picturesExists &&
-          dcimUri == other.dcimUri &&
-          picturesUri == other.picturesUri;
-}
+                const CloudAlbumCheckResultFfi({required this.dcimExists ,required this.picturesExists ,this.dcimUri ,this.picturesUri ,});
+
+                
+                
+
+                
+        @override
+        int get hashCode => dcimExists.hashCode^picturesExists.hashCode^dcimUri.hashCode^picturesUri.hashCode;
+        
+
+                
+        @override
+        bool operator ==(Object other) =>
+            identical(this, other) ||
+            other is CloudAlbumCheckResultFfi &&
+                runtimeType == other.runtimeType
+                && dcimExists == other.dcimExists&& picturesExists == other.picturesExists&& dcimUri == other.dcimUri&& picturesUri == other.picturesUri;
+        
+            }
 
 /// 同步配置
-class SyncConfigFfi {
-  final String baseUrl;
-  final String accessToken;
-  final String localRoot;
-  final String remoteRoot;
-  final String syncMode;
-  final String conflictStrategy;
-  final int maxConcurrentTransfers;
-  final BigInt bandwidthLimitKbps;
-  final List<String> excludedPaths;
-  final List<String> selectiveDirs;
+class SyncConfigFfi  {
+                final String baseUrl;
+final String accessToken;
+final String refreshToken;
+final String localRoot;
+final String remoteRoot;
+final String syncMode;
+final String conflictStrategy;
+final int maxConcurrentTransfers;
+final BigInt bandwidthLimitKbps;
+final List<String> excludedPaths;
+final List<String> selectiveDirs;
+final String dataDir;
 
-  const SyncConfigFfi({
-    required this.baseUrl,
-    required this.accessToken,
-    required this.localRoot,
-    required this.remoteRoot,
-    required this.syncMode,
-    required this.conflictStrategy,
-    required this.maxConcurrentTransfers,
-    required this.bandwidthLimitKbps,
-    required this.excludedPaths,
-    required this.selectiveDirs,
-  });
+                const SyncConfigFfi({required this.baseUrl ,required this.accessToken ,required this.refreshToken ,required this.localRoot ,required this.remoteRoot ,required this.syncMode ,required this.conflictStrategy ,required this.maxConcurrentTransfers ,required this.bandwidthLimitKbps ,required this.excludedPaths ,required this.selectiveDirs ,required this.dataDir ,});
 
-  @override
-  int get hashCode =>
-      baseUrl.hashCode ^
-      accessToken.hashCode ^
-      localRoot.hashCode ^
-      remoteRoot.hashCode ^
-      syncMode.hashCode ^
-      conflictStrategy.hashCode ^
-      maxConcurrentTransfers.hashCode ^
-      bandwidthLimitKbps.hashCode ^
-      excludedPaths.hashCode ^
-      selectiveDirs.hashCode;
+                
+                
 
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is SyncConfigFfi &&
-          runtimeType == other.runtimeType &&
-          baseUrl == other.baseUrl &&
-          accessToken == other.accessToken &&
-          localRoot == other.localRoot &&
-          remoteRoot == other.remoteRoot &&
-          syncMode == other.syncMode &&
-          conflictStrategy == other.conflictStrategy &&
-          maxConcurrentTransfers == other.maxConcurrentTransfers &&
-          bandwidthLimitKbps == other.bandwidthLimitKbps &&
-          excludedPaths == other.excludedPaths &&
-          selectiveDirs == other.selectiveDirs;
-}
+                
+        @override
+        int get hashCode => baseUrl.hashCode^accessToken.hashCode^refreshToken.hashCode^localRoot.hashCode^remoteRoot.hashCode^syncMode.hashCode^conflictStrategy.hashCode^maxConcurrentTransfers.hashCode^bandwidthLimitKbps.hashCode^excludedPaths.hashCode^selectiveDirs.hashCode^dataDir.hashCode;
+        
+
+                
+        @override
+        bool operator ==(Object other) =>
+            identical(this, other) ||
+            other is SyncConfigFfi &&
+                runtimeType == other.runtimeType
+                && baseUrl == other.baseUrl&& accessToken == other.accessToken&& refreshToken == other.refreshToken&& localRoot == other.localRoot&& remoteRoot == other.remoteRoot&& syncMode == other.syncMode&& conflictStrategy == other.conflictStrategy&& maxConcurrentTransfers == other.maxConcurrentTransfers&& bandwidthLimitKbps == other.bandwidthLimitKbps&& excludedPaths == other.excludedPaths&& selectiveDirs == other.selectiveDirs&& dataDir == other.dataDir;
+        
+            }
 
 @freezed
-sealed class SyncErrorFfi with _$SyncErrorFfi implements FrbException {
-  const SyncErrorFfi._();
+                sealed class SyncErrorFfi with _$SyncErrorFfi implements FrbException {
+                    const SyncErrorFfi._();
 
-  const factory SyncErrorFfi.notInitialized() = SyncErrorFfi_NotInitialized;
-  const factory SyncErrorFfi.networkError({required String message}) =
-      SyncErrorFfi_NetworkError;
-  const factory SyncErrorFfi.diskFull({
-    required BigInt needed,
-    required BigInt available,
-  }) = SyncErrorFfi_DiskFull;
-  const factory SyncErrorFfi.authError({required String message}) =
-      SyncErrorFfi_AuthError;
-  const factory SyncErrorFfi.conflictError({required int count}) =
-      SyncErrorFfi_ConflictError;
-  const factory SyncErrorFfi.internalError({required String message}) =
-      SyncErrorFfi_InternalError;
-}
+                     const factory SyncErrorFfi.notInitialized() = SyncErrorFfi_NotInitialized;
+ const factory SyncErrorFfi.networkError({   required String message , }) = SyncErrorFfi_NetworkError;
+ const factory SyncErrorFfi.diskFull({   required BigInt needed ,  required BigInt available , }) = SyncErrorFfi_DiskFull;
+ const factory SyncErrorFfi.authError({   required String message , }) = SyncErrorFfi_AuthError;
+ const factory SyncErrorFfi.conflictError({   required int count , }) = SyncErrorFfi_ConflictError;
+ const factory SyncErrorFfi.internalError({   required String message , }) = SyncErrorFfi_InternalError;
+
+                    
+
+                    
+                }
 
 /// 同步状态快照
-class SyncStatusFfi {
-  final String state;
-  final BigInt syncedFiles;
-  final BigInt totalFiles;
-  final int uploadingCount;
-  final int downloadingCount;
-  final int conflictCount;
-  final int errorCount;
-  final String? lastSyncTime;
-  final String? errorMessage;
+class SyncStatusFfi  {
+                final String state;
+final BigInt syncedFiles;
+final BigInt totalFiles;
+final int uploadingCount;
+final int downloadingCount;
+final int conflictCount;
+final int errorCount;
+final String? lastSyncTime;
+final String? errorMessage;
 
-  const SyncStatusFfi({
-    required this.state,
-    required this.syncedFiles,
-    required this.totalFiles,
-    required this.uploadingCount,
-    required this.downloadingCount,
-    required this.conflictCount,
-    required this.errorCount,
-    this.lastSyncTime,
-    this.errorMessage,
-  });
+                const SyncStatusFfi({required this.state ,required this.syncedFiles ,required this.totalFiles ,required this.uploadingCount ,required this.downloadingCount ,required this.conflictCount ,required this.errorCount ,this.lastSyncTime ,this.errorMessage ,});
 
-  @override
-  int get hashCode =>
-      state.hashCode ^
-      syncedFiles.hashCode ^
-      totalFiles.hashCode ^
-      uploadingCount.hashCode ^
-      downloadingCount.hashCode ^
-      conflictCount.hashCode ^
-      errorCount.hashCode ^
-      lastSyncTime.hashCode ^
-      errorMessage.hashCode;
+                
+                
 
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is SyncStatusFfi &&
-          runtimeType == other.runtimeType &&
-          state == other.state &&
-          syncedFiles == other.syncedFiles &&
-          totalFiles == other.totalFiles &&
-          uploadingCount == other.uploadingCount &&
-          downloadingCount == other.downloadingCount &&
-          conflictCount == other.conflictCount &&
-          errorCount == other.errorCount &&
-          lastSyncTime == other.lastSyncTime &&
-          errorMessage == other.errorMessage;
-}
+                
+        @override
+        int get hashCode => state.hashCode^syncedFiles.hashCode^totalFiles.hashCode^uploadingCount.hashCode^downloadingCount.hashCode^conflictCount.hashCode^errorCount.hashCode^lastSyncTime.hashCode^errorMessage.hashCode;
+        
+
+                
+        @override
+        bool operator ==(Object other) =>
+            identical(this, other) ||
+            other is SyncStatusFfi &&
+                runtimeType == other.runtimeType
+                && state == other.state&& syncedFiles == other.syncedFiles&& totalFiles == other.totalFiles&& uploadingCount == other.uploadingCount&& downloadingCount == other.downloadingCount&& conflictCount == other.conflictCount&& errorCount == other.errorCount&& lastSyncTime == other.lastSyncTime&& errorMessage == other.errorMessage;
+        
+            }
 
 /// 初始同步摘要
-class SyncSummaryFfi {
-  final int uploaded;
-  final int downloaded;
-  final int conflicts;
-  final int skipped;
-  final int deletedLocal;
-  final int deletedRemote;
-  final BigInt durationMs;
+class SyncSummaryFfi  {
+                final int uploaded;
+final int downloaded;
+final int conflicts;
+final int skipped;
+final int deletedLocal;
+final int deletedRemote;
+final BigInt durationMs;
 
-  const SyncSummaryFfi({
-    required this.uploaded,
-    required this.downloaded,
-    required this.conflicts,
-    required this.skipped,
-    required this.deletedLocal,
-    required this.deletedRemote,
-    required this.durationMs,
-  });
+                const SyncSummaryFfi({required this.uploaded ,required this.downloaded ,required this.conflicts ,required this.skipped ,required this.deletedLocal ,required this.deletedRemote ,required this.durationMs ,});
 
-  @override
-  int get hashCode =>
-      uploaded.hashCode ^
-      downloaded.hashCode ^
-      conflicts.hashCode ^
-      skipped.hashCode ^
-      deletedLocal.hashCode ^
-      deletedRemote.hashCode ^
-      durationMs.hashCode;
+                
+                
 
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is SyncSummaryFfi &&
-          runtimeType == other.runtimeType &&
-          uploaded == other.uploaded &&
-          downloaded == other.downloaded &&
-          conflicts == other.conflicts &&
-          skipped == other.skipped &&
-          deletedLocal == other.deletedLocal &&
-          deletedRemote == other.deletedRemote &&
-          durationMs == other.durationMs;
-}
+                
+        @override
+        int get hashCode => uploaded.hashCode^downloaded.hashCode^conflicts.hashCode^skipped.hashCode^deletedLocal.hashCode^deletedRemote.hashCode^durationMs.hashCode;
+        
+
+                
+        @override
+        bool operator ==(Object other) =>
+            identical(this, other) ||
+            other is SyncSummaryFfi &&
+                runtimeType == other.runtimeType
+                && uploaded == other.uploaded&& downloaded == other.downloaded&& conflicts == other.conflicts&& skipped == other.skipped&& deletedLocal == other.deletedLocal&& deletedRemote == other.deletedRemote&& durationMs == other.durationMs;
+        
+            }
+            

@@ -50,6 +50,14 @@ pub fn normalize_path(path: &str) -> String {
     p.trim_end_matches('/').to_string()
 }
 
+/// 冲突文件标记前缀
+pub const CONFLICT_MARKER: &str = "sync-conflict";
+
+/// 判断文件名是否为冲突副本
+pub fn is_conflict_file(name: &str) -> bool {
+    name.contains(CONFLICT_MARKER)
+}
+
 /// 生成冲突副本名称
 pub fn generate_conflict_name(original: &str) -> String {
     let path = PathBuf::from(original);
@@ -62,9 +70,9 @@ pub fn generate_conflict_name(original: &str) -> String {
 
     let date = chrono::Local::now().format("%Y-%m-%d");
     if ext.is_empty() {
-        format!("{} (冲突副本 {})", stem, date)
+        format!("{}.{}.{}", stem, CONFLICT_MARKER, date)
     } else {
-        format!("{} (冲突副本 {}).{}", stem, date, ext)
+        format!("{}.{}.{}.{}", stem, CONFLICT_MARKER, date, ext)
     }
 }
 
@@ -88,11 +96,19 @@ mod tests {
     #[test]
     fn test_generate_conflict_name() {
         let name = generate_conflict_name("photo.jpg");
-        assert!(name.starts_with("photo (冲突副本 "));
+        assert!(name.starts_with("photo.sync-conflict."));
         assert!(name.ends_with(".jpg"));
 
         let name_no_ext = generate_conflict_name("README");
-        assert!(name_no_ext.starts_with("README (冲突副本 "));
+        assert!(name_no_ext.starts_with("README.sync-conflict."));
+    }
+
+    #[test]
+    fn test_is_conflict_file() {
+        assert!(is_conflict_file("photo.sync-conflict.2026-05-14.jpg"));
+        assert!(is_conflict_file("README.sync-conflict.2026-05-14"));
+        assert!(!is_conflict_file("photo.jpg"));
+        assert!(!is_conflict_file("normal_file.txt"));
     }
 
     #[test]

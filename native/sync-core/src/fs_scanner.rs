@@ -5,6 +5,13 @@ use std::collections::HashSet;
 use std::path::Path;
 use walkdir::WalkDir;
 
+/// 需要跳过的文件/目录名前缀和名称
+pub const SKIP_NAMES: &[&str] = &[
+    ".DS_Store",
+    "Thumbs.db",
+    "desktop.ini",
+];
+
 pub struct FsScanner;
 
 impl FsScanner {
@@ -41,6 +48,19 @@ impl FsScanner {
                 continue;
             }
 
+            // 跳过同步元数据文件和系统文件
+            let file_name = entry.file_name().to_string_lossy();
+            if SKIP_NAMES.iter().any(|s| file_name == *s) {
+                continue;
+            }
+            if file_name.starts_with(".sync_") {
+                continue;
+            }
+            // 跳过冲突副本文件
+            if crate::utils::is_conflict_file(&file_name) {
+                continue;
+            }
+
             let metadata = match entry.metadata() {
                 Ok(m) => m,
                 Err(e) => {
@@ -63,6 +83,11 @@ impl FsScanner {
                 .unwrap_or(entry.path())
                 .to_path_buf();
 
+            // 跳过根目录自身（relative_path 为空）
+            if relative_path.to_string_lossy().is_empty() {
+                continue;
+            }
+
             if metadata.is_dir() {
                 entries.push(LocalFileEntry {
                     relative_path,
@@ -70,6 +95,7 @@ impl FsScanner {
                     mtime_ms: 0,
                     quick_hash: String::new(),
                     is_dir: true,
+                    mime_type: None,
                 });
             } else if metadata.is_file() {
                 let size = metadata.len();
@@ -80,6 +106,7 @@ impl FsScanner {
                     .unwrap_or(0);
 
                 let hash = quick_hash(entry.path(), size).await.unwrap_or_default();
+                let mime_type = guess_mime_type(entry.path());
 
                 entries.push(LocalFileEntry {
                     relative_path,
@@ -87,10 +114,18 @@ impl FsScanner {
                     mtime_ms,
                     quick_hash: hash,
                     is_dir: false,
+                    mime_type,
                 });
             }
         }
 
         Ok(entries)
     }
+}
+
+/// 根据文件扩展名推断 MIME 类型
+pub fn guess_mime_type(path: &Path) -> Option<String> {
+    mime_guess::from_path(path)
+        .first()
+        .map(|m| m.to_string())
 }

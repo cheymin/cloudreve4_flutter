@@ -1,14 +1,11 @@
 use flutter_rust_bridge::frb;
-use tokio::sync::Mutex;
+use std::sync::Arc;
 
 use crate::api::ffi_types::*;
 use crate::sync_engine::SyncEngine;
 
-use std::sync::Arc;
-
-/// 全局引擎实例（懒初始化）
-static ENGINE: once_cell::sync::Lazy<Arc<Mutex<Option<SyncEngine>>>> =
-    once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(None)));
+/// 全局引擎实例
+static ENGINE: once_cell::sync::OnceCell<Arc<SyncEngine>> = once_cell::sync::OnceCell::new();
 
 // 内部类型 -> FFI 类型的转换函数
 
@@ -55,6 +52,7 @@ fn config_from_ffi(ffi: SyncConfigFfi) -> crate::models::SyncConfig {
     crate::models::SyncConfig {
         base_url: ffi.base_url,
         access_token: ffi.access_token,
+        refresh_token: ffi.refresh_token,
         local_root: PathBuf::from(&ffi.local_root),
         remote_root: ffi.remote_root,
         sync_mode,
@@ -63,6 +61,7 @@ fn config_from_ffi(ffi: SyncConfigFfi) -> crate::models::SyncConfig {
         bandwidth_limit,
         excluded_paths: ffi.excluded_paths,
         selective_dirs: ffi.selective_dirs,
+        data_dir: PathBuf::from(&ffi.data_dir),
     }
 }
 
@@ -87,6 +86,7 @@ fn config_to_ffi(c: &crate::models::SyncConfig) -> SyncConfigFfi {
     SyncConfigFfi {
         base_url: c.base_url.clone(),
         access_token: c.access_token.clone(),
+        refresh_token: c.refresh_token.clone(),
         local_root: c.local_root.to_string_lossy().to_string(),
         remote_root: c.remote_root.clone(),
         sync_mode: sync_mode.to_string(),
@@ -95,6 +95,7 @@ fn config_to_ffi(c: &crate::models::SyncConfig) -> SyncConfigFfi {
         bandwidth_limit_kbps: c.bandwidth_limit.map(|b| b / 1024).unwrap_or(0),
         excluded_paths: c.excluded_paths.clone(),
         selective_dirs: c.selective_dirs.clone(),
+        data_dir: c.data_dir.to_string_lossy().to_string(),
     }
 }
 
@@ -149,29 +150,97 @@ fn album_result_to_ffi(r: crate::models::CloudAlbumCheckResult) -> CloudAlbumChe
     }
 }
 
+/// 获取引擎引用，未初始化则返回错误
+fn get_engine() -> Result<&'static SyncEngine, SyncErrorFfi> {
+    ENGINE.get().map(|arc| arc.as_ref()).ok_or(SyncErrorFfi::NotInitialized)
+}
+
 // ========== 生命周期 ==========
 
 /// 初始化同步引擎
 #[frb]
 pub async fn init_sync_engine(config: SyncConfigFfi) -> Result<(), SyncErrorFfi> {
-    let mut guard = ENGINE.lock().await;
-    if guard.is_some() {
-        return Err(SyncErrorFfi::InternalError {
-            message: "引擎已初始化".to_string(),
-        });
+    // 确保本地同步目录存在
+    let local_root = std::path::PathBuf::from(&config.local_root);
+    if !local_root.exists() {
+        std::fs::create_dir_all(&local_root).map_err(|e| SyncErrorFfi::InternalError {
+            message: format!("无法创建同步目录: {}", e),
+        })?;
     }
+
+    // 确保程序数据目录存在
+    let data_dir = std::path::PathBuf::from(&config.data_dir);
+    let db_dir = data_dir.join("sync_core").join("datas");
+    let log_dir = data_dir.join("sync_core").join("logs");
+    if !db_dir.exists() {
+        std::fs::create_dir_all(&db_dir).map_err(|e| SyncErrorFfi::InternalError {
+            message: format!("无法创建数据库目录: {}", e),
+        })?;
+    }
+    if !log_dir.exists() {
+        std::fs::create_dir_all(&log_dir).map_err(|e| SyncErrorFfi::InternalError {
+            message: format!("无法创建日志目录: {}", e),
+        })?;
+    }
+
+    // 初始化 tracing 日志：输出到程序数据目录的 logs 和 stderr
+    let log_path = log_dir.join("sync_log.txt");
+    eprintln!("[sync-core] 日志文件: {}", log_path.display());
+
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .ok();
+
+    if log_file.is_none() {
+        eprintln!("[sync-core] 警告: 无法创建日志文件 {}", log_path.display());
+    }
+
+    // 尝试初始化 subscriber（仅首次有效，后续调用忽略）
+    {
+        use tracing_subscriber::layer::SubscriberExt;
+        use tracing_subscriber::util::SubscriberInitExt;
+
+        let filter = tracing_subscriber::EnvFilter::from_default_env()
+            .add_directive("sync_core=debug".parse().unwrap());
+
+        let registry = tracing_subscriber::registry().with(filter);
+
+        if let Some(file) = log_file {
+            let _ = registry
+                .with(tracing_subscriber::fmt::layer()
+                    .with_writer(std::sync::Mutex::new(file))
+                    .with_ansi(false))
+                .with(tracing_subscriber::fmt::layer()
+                    .with_writer(std::io::stderr))
+                .try_init();
+        } else {
+            let _ = registry
+                .with(tracing_subscriber::fmt::layer()
+                    .with_writer(std::io::stderr))
+                .try_init();
+        }
+    }
+
     let engine = SyncEngine::new(config_from_ffi(config)).await
         .map_err(error_to_ffi)?;
-    *guard = Some(engine);
+
+    ENGINE.set(Arc::new(engine))
+        .map_err(|_| SyncErrorFfi::InternalError {
+            message: "引擎已初始化".to_string(),
+        })?;
+
+    tracing::info!("同步引擎初始化完成, 日志文件: {}", log_path.display());
     Ok(())
 }
 
 /// 销毁同步引擎
 #[frb]
 pub async fn dispose_sync_engine() -> Result<(), SyncErrorFfi> {
-    if let Some(engine) = ENGINE.lock().await.take() {
-        engine.shutdown().await.map_err(error_to_ffi)?;
-    }
+    let engine = get_engine()?;
+    engine.stop().await.map_err(error_to_ffi)?;
+    tracing::info!("同步引擎已停止");
     Ok(())
 }
 
@@ -180,56 +249,50 @@ pub async fn dispose_sync_engine() -> Result<(), SyncErrorFfi> {
 /// 执行初始全量同步
 #[frb]
 pub async fn start_initial_sync() -> Result<SyncSummaryFfi, SyncErrorFfi> {
-    let guard = ENGINE.lock().await;
-    let engine = guard.as_ref().ok_or(SyncErrorFfi::NotInitialized)?;
+    let engine = get_engine()?;
     engine.run_initial_sync().await
         .map(summary_to_ffi)
         .map_err(error_to_ffi)
 }
 
-/// 启动持续同步
+/// 启动持续同步（后台运行，立即返回）
 #[frb]
 pub async fn start_continuous_sync() -> Result<(), SyncErrorFfi> {
-    let guard = ENGINE.lock().await;
-    let engine = guard.as_ref().ok_or(SyncErrorFfi::NotInitialized)?;
-    engine.run_continuous().await.map_err(error_to_ffi)
+    let engine = get_engine()?;
+    let engine = engine.clone();
+    tokio::spawn(async move {
+        if let Err(e) = engine.run_continuous().await {
+            tracing::error!("持续同步异常退出: {}", e);
+        }
+    });
+    Ok(())
 }
 
 /// 停止同步
 #[frb]
 pub async fn stop_sync() -> Result<(), SyncErrorFfi> {
-    let guard = ENGINE.lock().await;
-    if let Some(engine) = guard.as_ref() {
-        engine.stop().await.map_err(error_to_ffi)?;
-    }
-    Ok(())
+    let engine = get_engine()?;
+    engine.stop().await.map_err(error_to_ffi)
 }
 
 /// 暂停同步
 #[frb]
 pub async fn pause_sync() -> Result<(), SyncErrorFfi> {
-    let guard = ENGINE.lock().await;
-    if let Some(engine) = guard.as_ref() {
-        engine.pause().await.map_err(error_to_ffi)?;
-    }
-    Ok(())
+    let engine = get_engine()?;
+    engine.pause().await.map_err(error_to_ffi)
 }
 
 /// 恢复同步
 #[frb]
 pub async fn resume_sync() -> Result<(), SyncErrorFfi> {
-    let guard = ENGINE.lock().await;
-    if let Some(engine) = guard.as_ref() {
-        engine.resume().await.map_err(error_to_ffi)?;
-    }
-    Ok(())
+    let engine = get_engine()?;
+    engine.resume().await.map_err(error_to_ffi)
 }
 
 /// 强制同步（重新扫描全量差异）
 #[frb]
 pub async fn force_sync() -> Result<SyncSummaryFfi, SyncErrorFfi> {
-    let guard = ENGINE.lock().await;
-    let engine = guard.as_ref().ok_or(SyncErrorFfi::NotInitialized)?;
+    let engine = get_engine()?;
     engine.force_sync().await
         .map(summary_to_ffi)
         .map_err(error_to_ffi)
@@ -240,27 +303,22 @@ pub async fn force_sync() -> Result<SyncSummaryFfi, SyncErrorFfi> {
 /// 获取同步状态快照
 #[frb]
 pub async fn get_sync_status() -> Result<SyncStatusFfi, SyncErrorFfi> {
-    let guard = ENGINE.lock().await;
-    let engine = guard.as_ref().ok_or(SyncErrorFfi::NotInitialized)?;
+    let engine = get_engine()?;
     Ok(status_to_ffi(engine.status()))
 }
 
 /// 获取同步配置
 #[frb]
 pub async fn get_sync_config() -> Result<SyncConfigFfi, SyncErrorFfi> {
-    let guard = ENGINE.lock().await;
-    let engine = guard.as_ref().ok_or(SyncErrorFfi::NotInitialized)?;
+    let engine = get_engine()?;
     Ok(config_to_ffi(&engine.config()))
 }
 
 /// 更新同步配置
 #[frb]
 pub async fn update_sync_config(config: SyncConfigFfi) -> Result<(), SyncErrorFfi> {
-    let guard = ENGINE.lock().await;
-    if let Some(engine) = guard.as_ref() {
-        engine.update_config(config_from_ffi(config)).await.map_err(error_to_ffi)?;
-    }
-    Ok(())
+    let engine = get_engine()?;
+    engine.update_config(config_from_ffi(config)).await.map_err(error_to_ffi)
 }
 
 // ========== Token 管理 ==========
@@ -268,10 +326,8 @@ pub async fn update_sync_config(config: SyncConfigFfi) -> Result<(), SyncErrorFf
 /// Dart 推送新 Token 给 Rust
 #[frb]
 pub async fn update_tokens(access_token: String) -> Result<(), SyncErrorFfi> {
-    let guard = ENGINE.lock().await;
-    if let Some(engine) = guard.as_ref() {
-        engine.update_access_token(access_token).await;
-    }
+    let engine = get_engine()?;
+    engine.update_access_token(access_token).await;
     Ok(())
 }
 
@@ -280,8 +336,7 @@ pub async fn update_tokens(access_token: String) -> Result<(), SyncErrorFfi> {
 /// 水合文件（Windows 按需下载）
 #[frb]
 pub async fn hydrate_file(local_path: String) -> Result<(), SyncErrorFfi> {
-    let guard = ENGINE.lock().await;
-    let engine = guard.as_ref().ok_or(SyncErrorFfi::NotInitialized)?;
+    let engine = get_engine()?;
     engine.hydrate_file(&local_path).await.map_err(error_to_ffi)
 }
 
@@ -293,16 +348,14 @@ pub async fn sync_album_to_cloud(
     album_paths: Vec<String>,
     remote_dcim_uri: String,
 ) -> Result<(), SyncErrorFfi> {
-    let guard = ENGINE.lock().await;
-    let engine = guard.as_ref().ok_or(SyncErrorFfi::NotInitialized)?;
+    let engine = get_engine()?;
     engine.sync_album(album_paths, &remote_dcim_uri).await.map_err(error_to_ffi)
 }
 
 /// 检查云端是否存在 DCIM/Pictures 目录
 #[frb]
 pub async fn check_cloud_album_dirs(base_uri: String) -> Result<CloudAlbumCheckResultFfi, SyncErrorFfi> {
-    let guard = ENGINE.lock().await;
-    let engine = guard.as_ref().ok_or(SyncErrorFfi::NotInitialized)?;
+    let engine = get_engine()?;
     engine.check_album_dirs(&base_uri).await
         .map(album_result_to_ffi)
         .map_err(error_to_ffi)
@@ -311,7 +364,6 @@ pub async fn check_cloud_album_dirs(base_uri: String) -> Result<CloudAlbumCheckR
 /// 在云端创建 DCIM/Pictures 目录
 #[frb]
 pub async fn create_cloud_album_dirs(base_uri: String) -> Result<(), SyncErrorFfi> {
-    let guard = ENGINE.lock().await;
-    let engine = guard.as_ref().ok_or(SyncErrorFfi::NotInitialized)?;
+    let engine = get_engine()?;
     engine.create_album_dirs(&base_uri).await.map_err(error_to_ffi)
 }

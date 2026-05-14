@@ -11,6 +11,9 @@ pub enum SyncError {
     #[error("认证错误: {0}")]
     Auth(String),
 
+    #[error("远程文件已存在")]
+    ObjectExisted,
+
     #[error("冲突: {count} 个文件存在冲突")]
     Conflict { count: u32 },
 

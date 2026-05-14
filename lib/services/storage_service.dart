@@ -149,4 +149,43 @@ class StorageService {
   Future<void> clearSearchHistory() async {
     await remove(StorageKeys.searchHistory);
   }
+
+  // ===== 同步配置持久化 =====
+
+  /// 保存同步配置
+  Future<bool> setSyncConfig(Map<String, dynamic> config) async {
+    try {
+      final json = jsonEncode(config);
+      return await setString(StorageKeys.syncConfig, json);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 读取同步配置
+  Future<Map<String, dynamic>?> getSyncConfig() async {
+    final json = await getString(StorageKeys.syncConfig);
+    if (json == null || json.isEmpty) return null;
+    try {
+      return jsonDecode(json) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 保存同步状态
+  Future<bool> setSyncState(String state) async {
+    return await setString(StorageKeys.syncState, state);
+  }
+
+  /// 读取同步状态
+  Future<String?> getSyncState() async {
+    return await getString(StorageKeys.syncState);
+  }
+
+  /// 清除同步配置和状态
+  Future<void> clearSyncData() async {
+    await remove(StorageKeys.syncConfig);
+    await remove(StorageKeys.syncState);
+  }
 }

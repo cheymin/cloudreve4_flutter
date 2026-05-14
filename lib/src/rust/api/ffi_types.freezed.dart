@@ -14,30 +14,26 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$SyncErrorFfi {
 
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is SyncErrorFfi);
+  }
 
 
+  @override
+  int get hashCode => runtimeType.hashCode;
 
-
-@override
-bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is SyncErrorFfi);
-}
-
-
-@override
-int get hashCode => runtimeType.hashCode;
-
-@override
-String toString() {
-  return 'SyncErrorFfi()';
-}
+  @override
+  String toString() {
+    return 'SyncErrorFfi()';
+  }
 
 
 }
 
 /// @nodoc
 class $SyncErrorFfiCopyWith<$Res>  {
-$SyncErrorFfiCopyWith(SyncErrorFfi _, $Res Function(SyncErrorFfi) __);
+  $SyncErrorFfiCopyWith(SyncErrorFfi _, $Res Function(SyncErrorFfi) __);
 }
 
 
@@ -55,20 +51,30 @@ extension SyncErrorFfiPatterns on SyncErrorFfi {
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( SyncErrorFfi_NotInitialized value)?  notInitialized,TResult Function( SyncErrorFfi_NetworkError value)?  networkError,TResult Function( SyncErrorFfi_DiskFull value)?  diskFull,TResult Function( SyncErrorFfi_AuthError value)?  authError,TResult Function( SyncErrorFfi_ConflictError value)?  conflictError,TResult Function( SyncErrorFfi_InternalError value)?  internalError,required TResult orElse(),}){
-final _that = this;
-switch (_that) {
-case SyncErrorFfi_NotInitialized() when notInitialized != null:
-return notInitialized(_that);case SyncErrorFfi_NetworkError() when networkError != null:
-return networkError(_that);case SyncErrorFfi_DiskFull() when diskFull != null:
-return diskFull(_that);case SyncErrorFfi_AuthError() when authError != null:
-return authError(_that);case SyncErrorFfi_ConflictError() when conflictError != null:
-return conflictError(_that);case SyncErrorFfi_InternalError() when internalError != null:
-return internalError(_that);case _:
-  return orElse();
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>(
+    {
+      TResult Function( SyncErrorFfi_NotInitialized value)?  notInitialized,
+      TResult Function( SyncErrorFfi_NetworkError value)?  networkError,
+      TResult Function( SyncErrorFfi_DiskFull value)?  diskFull,
+      TResult Function( SyncErrorFfi_AuthError value)?  authError,
+      TResult Function( SyncErrorFfi_ConflictError value)?  conflictError,
+      TResult Function( SyncErrorFfi_InternalError value)?  internalError,
+      required TResult orElse(),
+    }
+  ) {
+      final _that = this;
+      switch (_that) {
+        case SyncErrorFfi_NotInitialized() when notInitialized != null:
+        return notInitialized(_that);case SyncErrorFfi_NetworkError() when networkError != null:
+        return networkError(_that);case SyncErrorFfi_DiskFull() when diskFull != null:
+        return diskFull(_that);case SyncErrorFfi_AuthError() when authError != null:
+        return authError(_that);case SyncErrorFfi_ConflictError() when conflictError != null:
+        return conflictError(_that);case SyncErrorFfi_InternalError() when internalError != null:
+        return internalError(_that);case _:
+          return orElse();
 
-}
-}
+        }
+  }
 /// A `switch`-like method, using callbacks.
 ///
 /// Callbacks receives the raw object, upcasted.
@@ -82,16 +88,25 @@ return internalError(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( SyncErrorFfi_NotInitialized value)  notInitialized,required TResult Function( SyncErrorFfi_NetworkError value)  networkError,required TResult Function( SyncErrorFfi_DiskFull value)  diskFull,required TResult Function( SyncErrorFfi_AuthError value)  authError,required TResult Function( SyncErrorFfi_ConflictError value)  conflictError,required TResult Function( SyncErrorFfi_InternalError value)  internalError,}){
-final _that = this;
-switch (_that) {
-case SyncErrorFfi_NotInitialized():
-return notInitialized(_that);case SyncErrorFfi_NetworkError():
-return networkError(_that);case SyncErrorFfi_DiskFull():
-return diskFull(_that);case SyncErrorFfi_AuthError():
-return authError(_that);case SyncErrorFfi_ConflictError():
-return conflictError(_that);case SyncErrorFfi_InternalError():
-return internalError(_that);}
+@optionalTypeArgs TResult map<TResult extends Object?>(
+      {
+        required TResult Function( SyncErrorFfi_NotInitialized value)  notInitialized,
+        required TResult Function( SyncErrorFfi_NetworkError value)  networkError,
+        required TResult Function( SyncErrorFfi_DiskFull value)  diskFull,
+        required TResult Function( SyncErrorFfi_AuthError value)  authError,
+        required TResult Function( SyncErrorFfi_ConflictError value)  conflictError,
+        required TResult Function( SyncErrorFfi_InternalError value)  internalError,
+      }
+    ){
+      final _that = this;
+      switch (_that) {
+      case SyncErrorFfi_NotInitialized():
+      return notInitialized(_that);case SyncErrorFfi_NetworkError():
+      return networkError(_that);case SyncErrorFfi_DiskFull():
+      return diskFull(_that);case SyncErrorFfi_AuthError():
+      return authError(_that);case SyncErrorFfi_ConflictError():
+      return conflictError(_that);case SyncErrorFfi_InternalError():
+      return internalError(_that);}
 }
 /// A variant of `map` that fallback to returning `null`.
 ///
@@ -105,19 +120,28 @@ return internalError(_that);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( SyncErrorFfi_NotInitialized value)?  notInitialized,TResult? Function( SyncErrorFfi_NetworkError value)?  networkError,TResult? Function( SyncErrorFfi_DiskFull value)?  diskFull,TResult? Function( SyncErrorFfi_AuthError value)?  authError,TResult? Function( SyncErrorFfi_ConflictError value)?  conflictError,TResult? Function( SyncErrorFfi_InternalError value)?  internalError,}){
-final _that = this;
-switch (_that) {
-case SyncErrorFfi_NotInitialized() when notInitialized != null:
-return notInitialized(_that);case SyncErrorFfi_NetworkError() when networkError != null:
-return networkError(_that);case SyncErrorFfi_DiskFull() when diskFull != null:
-return diskFull(_that);case SyncErrorFfi_AuthError() when authError != null:
-return authError(_that);case SyncErrorFfi_ConflictError() when conflictError != null:
-return conflictError(_that);case SyncErrorFfi_InternalError() when internalError != null:
-return internalError(_that);case _:
-  return null;
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>(
+      {
+        TResult? Function( SyncErrorFfi_NotInitialized value)?  notInitialized,
+        TResult? Function( SyncErrorFfi_NetworkError value)?  networkError,
+        TResult? Function( SyncErrorFfi_DiskFull value)?  diskFull,
+        TResult? Function( SyncErrorFfi_AuthError value)?  authError,
+        TResult? Function( SyncErrorFfi_ConflictError value)?  conflictError,
+        TResult? Function( SyncErrorFfi_InternalError value)?  internalError,
+      }
+    ){
+        final _that = this;
+        switch (_that) {
+        case SyncErrorFfi_NotInitialized() when notInitialized != null:
+        return notInitialized(_that);case SyncErrorFfi_NetworkError() when networkError != null:
+        return networkError(_that);case SyncErrorFfi_DiskFull() when diskFull != null:
+        return diskFull(_that);case SyncErrorFfi_AuthError() when authError != null:
+        return authError(_that);case SyncErrorFfi_ConflictError() when conflictError != null:
+        return conflictError(_that);case SyncErrorFfi_InternalError() when internalError != null:
+        return internalError(_that);case _:
+          return null;
 
-}
+        }
 }
 /// A variant of `when` that fallback to an `orElse` callback.
 ///
@@ -131,18 +155,29 @@ return internalError(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function()?  notInitialized,TResult Function( String message)?  networkError,TResult Function( BigInt needed,  BigInt available)?  diskFull,TResult Function( String message)?  authError,TResult Function( int count)?  conflictError,TResult Function( String message)?  internalError,required TResult orElse(),}) {final _that = this;
-switch (_that) {
-case SyncErrorFfi_NotInitialized() when notInitialized != null:
-return notInitialized();case SyncErrorFfi_NetworkError() when networkError != null:
-return networkError(_that.message);case SyncErrorFfi_DiskFull() when diskFull != null:
-return diskFull(_that.needed,_that.available);case SyncErrorFfi_AuthError() when authError != null:
-return authError(_that.message);case SyncErrorFfi_ConflictError() when conflictError != null:
-return conflictError(_that.count);case SyncErrorFfi_InternalError() when internalError != null:
-return internalError(_that.message);case _:
-  return orElse();
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(
+  {
+    TResult Function()?  notInitialized,
+    TResult Function( String message)?  networkError,
+    TResult Function( BigInt needed,  BigInt available)?  diskFull,
+    TResult Function( String message)?  authError,
+    TResult Function( int count)?  conflictError,
+    TResult Function( String message)?  internalError,
+    required TResult orElse(),
+  }
+) {
+    final _that = this;
+    switch (_that) {
+      case SyncErrorFfi_NotInitialized() when notInitialized != null:
+      return notInitialized();case SyncErrorFfi_NetworkError() when networkError != null:
+      return networkError(_that.message);case SyncErrorFfi_DiskFull() when diskFull != null:
+      return diskFull(_that.needed,_that.available);case SyncErrorFfi_AuthError() when authError != null:
+      return authError(_that.message);case SyncErrorFfi_ConflictError() when conflictError != null:
+      return conflictError(_that.count);case SyncErrorFfi_InternalError() when internalError != null:
+      return internalError(_that.message);case _:
+        return orElse();
 
-}
+    }
 }
 /// A `switch`-like method, using callbacks.
 ///
@@ -157,15 +192,25 @@ return internalError(_that.message);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function()  notInitialized,required TResult Function( String message)  networkError,required TResult Function( BigInt needed,  BigInt available)  diskFull,required TResult Function( String message)  authError,required TResult Function( int count)  conflictError,required TResult Function( String message)  internalError,}) {final _that = this;
-switch (_that) {
-case SyncErrorFfi_NotInitialized():
-return notInitialized();case SyncErrorFfi_NetworkError():
-return networkError(_that.message);case SyncErrorFfi_DiskFull():
-return diskFull(_that.needed,_that.available);case SyncErrorFfi_AuthError():
-return authError(_that.message);case SyncErrorFfi_ConflictError():
-return conflictError(_that.count);case SyncErrorFfi_InternalError():
-return internalError(_that.message);}
+@optionalTypeArgs TResult when<TResult extends Object?>(
+  {
+    required TResult Function()  notInitialized,
+    required TResult Function( String message)  networkError,
+    required TResult Function( BigInt needed,  BigInt available)  diskFull,
+    required TResult Function( String message)  authError,
+    required TResult Function( int count)  conflictError,
+    required TResult Function( String message)  internalError,
+  }) {
+      final _that = this;
+      switch (_that) {
+      case SyncErrorFfi_NotInitialized():
+      return notInitialized();case SyncErrorFfi_NetworkError():
+      return networkError(_that.message);case SyncErrorFfi_DiskFull():
+      return diskFull(_that.needed,_that.available);case SyncErrorFfi_AuthError():
+      return authError(_that.message);case SyncErrorFfi_ConflictError():
+      return conflictError(_that.count);case SyncErrorFfi_InternalError():
+      return internalError(_that.message);
+    }
 }
 /// A variant of `when` that fallback to returning `null`
 ///

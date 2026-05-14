@@ -14,6 +14,7 @@ pub enum SyncErrorFfi {
 pub struct SyncConfigFfi {
     pub base_url: String,
     pub access_token: String,
+    pub refresh_token: String,
     pub local_root: String,
     pub remote_root: String,
     pub sync_mode: String,
@@ -22,6 +23,7 @@ pub struct SyncConfigFfi {
     pub bandwidth_limit_kbps: u64,
     pub excluded_paths: Vec<String>,
     pub selective_dirs: Vec<String>,
+    pub data_dir: String,
 }
 
 /// 同步状态快照

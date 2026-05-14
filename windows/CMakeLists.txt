@@ -109,7 +109,17 @@ install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   COMPONENT Runtime)
 
 # === Rust Sync Engine ===
-find_program(CARGO_CMD cargo PATHS "$ENV{USERPROFILE}\\.cargo\\bin" NO_DEFAULT_PATH)
+find_program(CARGO_CMD cargo
+    PATHS
+        "$ENV{USERPROFILE}\\.cargo\\bin"
+        "$ENV{HOME}\\.cargo\\bin"
+        "$ENV{CARGO_HOME}\\bin"
+    NO_DEFAULT_PATH
+)
+# 如果以上路径都找不到，回退到系统 PATH
+if(NOT CARGO_CMD)
+    find_program(CARGO_CMD cargo)
+endif()
 if(NOT CARGO_CMD)
     message(WARNING "cargo not found, skipping Rust sync engine build")
 else()

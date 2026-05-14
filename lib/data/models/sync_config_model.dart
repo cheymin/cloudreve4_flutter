@@ -3,6 +3,7 @@ import '../../src/rust/api/ffi_types.dart' as ffi;
 class SyncConfigModel {
   final String baseUrl;
   final String accessToken;
+  final String refreshToken;
   final String localRoot;
   final String remoteRoot;
   final String syncMode;
@@ -11,11 +12,14 @@ class SyncConfigModel {
   final int bandwidthLimitKbps;
   final List<String> excludedPaths;
   final List<String> selectiveDirs;
+  final String dataDir;
 
   const SyncConfigModel({
     required this.baseUrl,
     required this.accessToken,
+    required this.refreshToken,
     required this.localRoot,
+    required this.dataDir,
     this.remoteRoot = 'cloudreve://my',
     this.syncMode = 'full',
     this.conflictStrategy = 'keep_both',
@@ -28,6 +32,7 @@ class SyncConfigModel {
   SyncConfigModel copyWith({
     String? baseUrl,
     String? accessToken,
+    String? refreshToken,
     String? localRoot,
     String? remoteRoot,
     String? syncMode,
@@ -36,10 +41,12 @@ class SyncConfigModel {
     int? bandwidthLimitKbps,
     List<String>? excludedPaths,
     List<String>? selectiveDirs,
+    String? dataDir,
   }) {
     return SyncConfigModel(
       baseUrl: baseUrl ?? this.baseUrl,
       accessToken: accessToken ?? this.accessToken,
+      refreshToken: refreshToken ?? this.refreshToken,
       localRoot: localRoot ?? this.localRoot,
       remoteRoot: remoteRoot ?? this.remoteRoot,
       syncMode: syncMode ?? this.syncMode,
@@ -49,6 +56,7 @@ class SyncConfigModel {
       bandwidthLimitKbps: bandwidthLimitKbps ?? this.bandwidthLimitKbps,
       excludedPaths: excludedPaths ?? this.excludedPaths,
       selectiveDirs: selectiveDirs ?? this.selectiveDirs,
+      dataDir: dataDir ?? this.dataDir,
     );
   }
 
@@ -56,6 +64,7 @@ class SyncConfigModel {
     return ffi.SyncConfigFfi(
       baseUrl: baseUrl,
       accessToken: accessToken,
+      refreshToken: refreshToken,
       localRoot: localRoot,
       remoteRoot: remoteRoot,
       syncMode: syncMode,
@@ -64,6 +73,7 @@ class SyncConfigModel {
       bandwidthLimitKbps: BigInt.from(bandwidthLimitKbps),
       excludedPaths: excludedPaths,
       selectiveDirs: selectiveDirs,
+      dataDir: dataDir,
     );
   }
 
@@ -71,6 +81,7 @@ class SyncConfigModel {
     return SyncConfigModel(
       baseUrl: ffi.baseUrl,
       accessToken: ffi.accessToken,
+      refreshToken: ffi.refreshToken,
       localRoot: ffi.localRoot,
       remoteRoot: ffi.remoteRoot,
       syncMode: ffi.syncMode,
@@ -79,6 +90,7 @@ class SyncConfigModel {
       bandwidthLimitKbps: ffi.bandwidthLimitKbps.toInt(),
       excludedPaths: ffi.excludedPaths,
       selectiveDirs: ffi.selectiveDirs,
+      dataDir: ffi.dataDir,
     );
   }
 }

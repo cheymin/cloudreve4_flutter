@@ -30,6 +30,7 @@ pub struct InitialSyncProgress {
 pub struct SyncConfig {
     pub base_url: String,
     pub access_token: String,
+    pub refresh_token: String,
     pub local_root: PathBuf,
     pub remote_root: String,
     pub sync_mode: SyncMode,
@@ -38,6 +39,7 @@ pub struct SyncConfig {
     pub bandwidth_limit: Option<u64>,
     pub excluded_paths: Vec<String>,
     pub selective_dirs: Vec<String>,
+    pub data_dir: PathBuf,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -56,6 +58,7 @@ pub struct LocalFileEntry {
     pub mtime_ms: i64,
     pub quick_hash: String,
     pub is_dir: bool,
+    pub mime_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

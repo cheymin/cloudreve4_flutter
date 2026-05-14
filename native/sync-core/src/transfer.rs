@@ -101,6 +101,10 @@ impl TransferManager {
         let session = self.api.create_upload_session(
             &task.remote_uri,
             task.file_size,
+            false,
+            None,
+            None,
+            None,
         ).await?;
 
         // 2. 按序上传分片

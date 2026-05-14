@@ -19,6 +19,7 @@ import 'presentation/providers/download_manager_provider.dart';
 import 'presentation/providers/user_setting_provider.dart';
 import 'presentation/providers/admin_provider.dart';
 import 'presentation/providers/quick_access_provider.dart';
+import 'presentation/providers/sync_provider.dart';
 import 'presentation/providers/theme_provider.dart';
 import 'services/upload_service.dart';
 import 'services/upload_foreground_service.dart';
@@ -41,7 +42,13 @@ void main() async {
   UploadForegroundService.initCommunicationPort();
 
   // 初始化 Flutter Rust Bridge
-  await RustSyncApi.init();
+  try {
+    await RustSyncApi.init();
+    AppLogger.i("RustSyncApi 初始化成功");
+  } catch (e) {
+    AppLogger.e("RustSyncApi 初始化失败: $e");
+    // 初始化失败不阻塞应用启动，同步功能将不可用
+  }
 
   // 捕获 flutter_cache_manager 在 Windows 上删除缓存文件时的文件占用异常
   // 该异常是后台异步抛出的，无法通过 try-catch 拦截，需绑定错误处理器静默忽略
@@ -168,6 +175,7 @@ class CloudreveApp extends StatelessWidget {
             ChangeNotifierProvider(create: (_) => UserSettingProvider()),
             ChangeNotifierProvider(create: (_) => AdminProvider()),
             ChangeNotifierProvider(create: (_) => QuickAccessProvider()..load()),
+            ChangeNotifierProvider(create: (_) => SyncProvider()),
           ],
           child: const AppView(),
         );

@@ -27,4 +27,8 @@ class StorageKeys {
 
   // 搜索历史
   static const String searchHistory = 'search_history';
+
+  // 同步相关
+  static const String syncConfig = 'sync_config';
+  static const String syncState = 'sync_state';
 }
