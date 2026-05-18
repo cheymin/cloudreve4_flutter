@@ -23,7 +23,7 @@ fun getLocalProperty(key: String, defaultValue: Int): Int {
     return value?.toIntOrNull() ?: defaultValue
 }
 
-// 1. 加载 key.properties
+// 1. 加载 key.properties  release 必须有签名信息, 不允许 debug key
 val keystoreProperties = Properties()
 val keystorePropertiesFile = rootProject.file("key.properties")
 if (keystorePropertiesFile.exists()) {
@@ -48,6 +48,7 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -55,11 +56,8 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.limo.cloudreve4_flutter"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = getLocalProperty("flutter.minSdkVersion", 34)
+        minSdk = getLocalProperty("flutter.minSdkVersion", 31)
         targetSdk = getLocalProperty("flutter.targetSdkVersion", 34)
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -75,10 +73,8 @@ android {
 
     buildTypes {
         release {
-            // 1. 将原来的 getByName("debug") 替换为 getByName("release")
             signingConfig = signingConfigs.getByName("release")
             
-            // 2. 建议同时开启混淆，这能大幅减小网盘应用的体积并保护代码
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -99,6 +95,11 @@ android {
             output.outputFileName = "${appName}_v${versionName}_${versionCode}_${abi}_release.apk"
         }
     }
+}
+
+dependencies {
+    implementation("androidx.core:core-ktx:1.13.1")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 }
 
 flutter {

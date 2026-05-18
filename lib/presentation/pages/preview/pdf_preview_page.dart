@@ -115,8 +115,10 @@ class _PdfPreviewPageState extends State<PdfPreviewPage> {
         params: const PdfViewerParams(
           activeMatchTextColor: Colors.yellow,
           annotationRenderingMode: PdfAnnotationRenderingMode.annotationAndForms,
-          maxScale: 4.0,
-          minScale: 0.8, // Allow 300% zoom
+          sizeDelegateProvider: PdfViewerSizeDelegateProviderLegacy(
+            maxScale: 4.0,
+            minScale: 0.8, // Allow 300% zoom
+          ),
           scaleEnabled: true,
           textSelectionParams: PdfTextSelectionParams(
             enabled: true,

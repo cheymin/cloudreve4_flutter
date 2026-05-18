@@ -1,17 +1,22 @@
+import 'package:cloudreve4_flutter/data/models/login_config_model.dart';
 import 'package:cloudreve4_flutter/presentation/widgets/desktop_constrained.dart';
+import 'package:cloudreve4_flutter/services/captcha_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
+
 import '../../../core/exceptions/app_exception.dart';
 import '../../../core/validators/string_validator.dart';
 import '../../../data/models/server_model.dart';
-import '../../providers/auth_provider.dart';
-import '../../../services/server_service.dart';
 import '../../../router/app_router.dart';
+import '../../../services/api_service.dart';
+import '../../../services/auth_service.dart';
+import '../../../services/server_service.dart';
+import '../../providers/auth_provider.dart';
+import '../../widgets/toast_helper.dart';
 import 'forgot_password_page.dart';
 import 'register_page.dart';
-import '../../widgets/toast_helper.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -25,14 +30,21 @@ class _LoginPageState extends State<LoginPage> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _focusNode = FocusNode();
+
   bool _obscurePassword = true;
   bool _rememberMe = false;
   bool _isLoading = false;
+
+  LoginConfigModel _loginConfig = const LoginConfigModel();
 
   @override
   void initState() {
     super.initState();
     _loadRememberedInfo();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadLoginConfig();
+    });
   }
 
   @override
@@ -58,26 +70,55 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  Future<void> _loadLoginConfig() async {
+    final server = ServerService.instance.currentServer;
+    if (server == null) return;
+
+    try {
+      await ApiService.instance.setBaseUrl(server.baseUrl);
+      final config = await AuthService.instance
+          .getLoginConfig()
+          .timeout(const Duration(seconds: 10));
+
+      if (!mounted) return;
+      setState(() => _loginConfig = config);
+
+      if (config.loginCaptcha) {
+        await CaptchaService.instance.loadCaptcha(server.baseUrl);
+        if (mounted) setState(() {});
+      }
+    } catch (_) {}
+  }
+
   Future<void> _showServerSelector() async {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (context) => ServerSelectorSheet(),
+      builder: (context) => const ServerSelectorSheet(),
     );
     await _loadRememberedInfo();
+    await _loadLoginConfig();
   }
 
   Future<void> _showServerManagement() async {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (context) => ServerManagementSheet(),
+      builder: (context) => const ServerManagementSheet(),
     );
     await _loadRememberedInfo();
+    await _loadLoginConfig();
   }
 
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
+
+    final captcha = CaptchaService.instance;
+
+    if (_loginConfig.loginCaptcha && !captcha.isWebCaptchaVerified) {
+      ToastHelper.failure('请先完成人机验证');
+      return;
+    }
 
     final navigator = Navigator.of(context);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
@@ -85,14 +126,22 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => _isLoading = true);
 
     try {
-      final success = await authProvider.passwordLogin(
-        email: _emailController.text.trim(),
-        password: _passwordController.text,
-        rememberMe: _rememberMe,
-      ).timeout(
-        const Duration(seconds: 5),
-        onTimeout: () => throw Exception('请求超时'),
-      );
+      final captchaParams = _loginConfig.loginCaptcha
+          ? captcha.getCaptchaParams()
+          : <String, String>{};
+
+      final success = await authProvider
+          .passwordLogin(
+            email: _emailController.text.trim(),
+            password: _passwordController.text,
+            rememberMe: _rememberMe,
+            captcha: captchaParams['captcha'],
+            ticket: captchaParams['ticket'],
+          )
+          .timeout(
+            const Duration(seconds: 15),
+            onTimeout: () => throw Exception('请求超时'),
+          );
 
       if (mounted) setState(() => _isLoading = false);
 
@@ -102,6 +151,11 @@ class _LoginPageState extends State<LoginPage> {
         await Future.delayed(const Duration(seconds: 1));
         if (mounted) navigator.pushReplacementNamed(RouteNames.home);
       } else if (mounted) {
+        if (_loginConfig.loginCaptcha) {
+          await captcha.refreshCaptcha();
+          setState(() {});
+        }
+
         final errorMessage = authProvider.errorMessage;
         if (errorMessage != null && errorMessage.isNotEmpty) {
           final errorMsg = _parseErrorMessage(errorMessage);
@@ -118,6 +172,11 @@ class _LoginPageState extends State<LoginPage> {
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
+        if (_loginConfig.loginCaptcha) {
+          await captcha.refreshCaptcha();
+          setState(() {});
+        }
+
         final errorMsg = _parseErrorMessage(e.toString());
         ToastHelper.failure(errorMsg);
       }
@@ -172,6 +231,7 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final captcha = CaptchaService.instance;
 
     return Scaffold(
       body: SafeArea(
@@ -204,15 +264,11 @@ class _LoginPageState extends State<LoginPage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            // 服务器选择器
                             _ServerSelector(
                               onTap: _showServerSelector,
                               onManage: _showServerManagement,
                             ),
-
                             const SizedBox(height: 16),
-
-                            // 邮箱
                             TextFormField(
                               controller: _emailController,
                               keyboardType: TextInputType.emailAddress,
@@ -223,12 +279,10 @@ class _LoginPageState extends State<LoginPage> {
                                 hintText: '请输入邮箱地址',
                                 prefixIcon: Icon(LucideIcons.mail),
                               ),
-                              onFieldSubmitted: (_) => _focusNode.requestFocus(),
+                              onFieldSubmitted: (_) =>
+                                  _focusNode.requestFocus(),
                             ),
-
                             const SizedBox(height: 16),
-
-                            // 密码
                             TextFormField(
                               controller: _passwordController,
                               focusNode: _focusNode,
@@ -246,18 +300,22 @@ class _LoginPageState extends State<LoginPage> {
                                     size: 20,
                                   ),
                                   onPressed: () {
-                                    setState(() => _obscurePassword = !_obscurePassword);
+                                    setState(() {
+                                      _obscurePassword = !_obscurePassword;
+                                    });
                                   },
                                 ),
                               ),
                               onFieldSubmitted: (_) => _login(),
                             ),
-
+                            if (_loginConfig.loginCaptcha) ...[
+                              const SizedBox(height: 16),
+                              captcha.buildCaptchaInput(context),
+                            ],
                             const SizedBox(height: 12),
-
-                            // 记住我
                             InkWell(
-                              onTap: () => setState(() => _rememberMe = !_rememberMe),
+                              onTap: () =>
+                                  setState(() => _rememberMe = !_rememberMe),
                               borderRadius: BorderRadius.circular(8),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
@@ -267,7 +325,9 @@ class _LoginPageState extends State<LoginPage> {
                                     height: 24,
                                     child: Checkbox(
                                       value: _rememberMe,
-                                      onChanged: (v) => setState(() => _rememberMe = v ?? false),
+                                      onChanged: (v) => setState(
+                                        () => _rememberMe = v ?? false,
+                                      ),
                                     ),
                                   ),
                                   const SizedBox(width: 8),
@@ -275,10 +335,7 @@ class _LoginPageState extends State<LoginPage> {
                                 ],
                               ),
                             ),
-
                             const SizedBox(height: 20),
-
-                            // 链接按钮
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
@@ -286,7 +343,10 @@ class _LoginPageState extends State<LoginPage> {
                                   onPressed: () {
                                     Navigator.of(context).push(
                                       MaterialPageRoute(
-                                        builder: (context) => const ForgotPasswordPage(),
+                                        builder: (context) =>
+                                            ForgotPasswordPage(
+                                          loginConfig: _loginConfig,
+                                        ),
                                       ),
                                     );
                                   },
@@ -296,7 +356,9 @@ class _LoginPageState extends State<LoginPage> {
                                   onPressed: () {
                                     Navigator.of(context).push(
                                       MaterialPageRoute(
-                                        builder: (context) => const RegisterPage(),
+                                        builder: (context) => RegisterPage(
+                                          loginConfig: _loginConfig,
+                                        ),
                                       ),
                                     );
                                   },
@@ -304,10 +366,7 @@ class _LoginPageState extends State<LoginPage> {
                                 ),
                               ],
                             ),
-
                             const SizedBox(height: 16),
-
-                            // 登录按钮
                             FilledButton(
                               onPressed: _isLoading ? null : _login,
                               style: FilledButton.styleFrom(
@@ -320,7 +379,9 @@ class _LoginPageState extends State<LoginPage> {
                                   ? const SizedBox(
                                       width: 24,
                                       height: 24,
-                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
                                     )
                                   : const Text('登录'),
                             ),
@@ -377,7 +438,11 @@ class _ServerSelector extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Icon(LucideIcons.server, size: 20, color: theme.colorScheme.onSurfaceVariant),
+            Icon(
+              LucideIcons.server,
+              size: 20,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -385,7 +450,10 @@ class _ServerSelector extends StatelessWidget {
                 children: [
                   Text(
                     currentServer?.label ?? '选择服务器',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                   if (currentServer != null) ...[
                     const SizedBox(height: 2),
@@ -400,7 +468,11 @@ class _ServerSelector extends StatelessWidget {
               ),
             ),
             IconButton(
-              icon: Icon(LucideIcons.pencil, size: 20, color: theme.colorScheme.onSurfaceVariant),
+              icon: Icon(
+                LucideIcons.pencil,
+                size: 20,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
               onPressed: onManage,
               tooltip: '管理服务器',
             ),
@@ -492,7 +564,9 @@ class _ServerListItem extends StatelessWidget {
       ),
       title: Text(
         server.label,
-        style: TextStyle(fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal),
+        style: TextStyle(
+          fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+        ),
       ),
       subtitle: Text(
         server.baseUrl,
@@ -500,7 +574,8 @@ class _ServerListItem extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      tileColor: isSelected ? Theme.of(context).colorScheme.primaryContainer : null,
+      tileColor:
+          isSelected ? Theme.of(context).colorScheme.primaryContainer : null,
       onTap: onTap,
     );
   }
@@ -634,7 +709,10 @@ class _ServerManagementSheetState extends State<ServerManagementSheet> {
     }
   }
 
-  Future<void> _showEditServerDialog(BuildContext context, ServerModel server) async {
+  Future<void> _showEditServerDialog(
+    BuildContext context,
+    ServerModel server,
+  ) async {
     final labelController = TextEditingController(text: server.label);
     final urlController = TextEditingController(text: server.baseUrl);
 
@@ -699,7 +777,10 @@ class _ServerManagementSheetState extends State<ServerManagementSheet> {
     }
   }
 
-  Future<void> _showDeleteConfirmDialog(BuildContext context, ServerModel server) async {
+  Future<void> _showDeleteConfirmDialog(
+    BuildContext context,
+    ServerModel server,
+  ) async {
     final colorScheme = Theme.of(context).colorScheme;
     final result = await showDialog<bool>(
       context: context,
@@ -747,7 +828,10 @@ class _ServerManagementItem extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return ListTile(
-      title: Text(server.label, style: const TextStyle(fontWeight: FontWeight.w500)),
+      title: Text(
+        server.label,
+        style: const TextStyle(fontWeight: FontWeight.w500),
+      ),
       subtitle: Text(
         server.baseUrl,
         style: TextStyle(fontSize: 12, color: theme.hintColor),
@@ -758,12 +842,20 @@ class _ServerManagementItem extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           IconButton(
-            icon: Icon(LucideIcons.pencil, size: 20, color: theme.colorScheme.onSurfaceVariant),
+            icon: Icon(
+              LucideIcons.pencil,
+              size: 20,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
             onPressed: onEdit,
             tooltip: '编辑',
           ),
           IconButton(
-            icon: Icon(LucideIcons.trash2, size: 20, color: theme.colorScheme.error),
+            icon: Icon(
+              LucideIcons.trash2,
+              size: 20,
+              color: theme.colorScheme.error,
+            ),
             onPressed: onDelete,
             tooltip: '删除',
           ),
@@ -813,10 +905,12 @@ class _TwoFactorDialogState extends State<_TwoFactorDialog>
       TweenSequenceItem(tween: Tween(begin: 8, end: -8), weight: 1),
       TweenSequenceItem(tween: Tween(begin: -8, end: 4), weight: 1),
       TweenSequenceItem(tween: Tween(begin: 4, end: 0), weight: 1),
-    ]).animate(CurvedAnimation(
-      parent: _shakeController,
-      curve: Curves.easeInOut,
-    ));
+    ]).animate(
+      CurvedAnimation(
+        parent: _shakeController,
+        curve: Curves.easeInOut,
+      ),
+    );
     _controller.addListener(_onTextChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _focusNode.requestFocus();
@@ -846,16 +940,18 @@ class _TwoFactorDialogState extends State<_TwoFactorDialog>
 
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     try {
-      final success = await authProvider.twoFactorLogin(
-        otp: code,
-        sessionId: widget.sessionId,
-        email: widget.email,
-        password: widget.password,
-        rememberMe: widget.rememberMe,
-      ).timeout(
-        const Duration(seconds: 5),
-        onTimeout: () => throw Exception('请求超时'),
-      );
+      final success = await authProvider
+          .twoFactorLogin(
+            otp: code,
+            sessionId: widget.sessionId,
+            email: widget.email,
+            password: widget.password,
+            rememberMe: widget.rememberMe,
+          )
+          .timeout(
+            const Duration(seconds: 5),
+            onTimeout: () => throw Exception('请求超时'),
+          );
 
       if (!mounted) return;
 
@@ -953,7 +1049,8 @@ class _TwoFactorDialogState extends State<_TwoFactorDialog>
       ),
       actions: [
         TextButton(
-          onPressed: _isSubmitting ? null : () => Navigator.of(context).pop(false),
+          onPressed:
+              _isSubmitting ? null : () => Navigator.of(context).pop(false),
           child: const Text('取消'),
         ),
         FilledButton(
