@@ -39,6 +39,9 @@ anyhow = { workspace = true }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+# 并发
+dashmap = "6"
+
 # 工具
 uuid = { workspace = true }
 chrono = { workspace = true }

@@ -80,6 +80,31 @@ pub enum SyncEventFfi {
     TokenExpired,
     DiskSpaceWarning { available_mb: u64 },
     InitialSyncComplete { summary: SyncSummaryFfi },
+
+    // Worker 事件
+    WorkerStarted {
+        task_id: String,
+        trigger: String,
+        upload_count: u32,
+        download_count: u32,
+    },
+    WorkerCompleted {
+        task_id: String,
+        uploaded: u32,
+        downloaded: u32,
+        failed: u32,
+        duration_ms: u64,
+    },
+    WorkerFailed {
+        task_id: String,
+        message: String,
+    },
+    TaskItemUpdated {
+        task_id: String,
+        relative_path: String,
+        action: String,
+        status: String,
+    },
 }
 
 /// Android: 云端相册目录检查结果
@@ -89,4 +114,43 @@ pub struct CloudAlbumCheckResultFfi {
     pub pictures_exists: bool,
     pub dcim_uri: Option<String>,
     pub pictures_uri: Option<String>,
+}
+
+/// 同步任务摘要（FFI）
+#[derive(Debug, Clone)]
+pub struct SyncTaskFfi {
+    pub id: String,
+    pub trigger: String,
+    pub total_count: u32,
+    pub completed_count: u32,
+    pub failed_count: u32,
+    pub status: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub finished_at: Option<String>,
+}
+
+/// 同步任务项（FFI）
+#[derive(Debug, Clone)]
+pub struct SyncTaskItemFfi {
+    pub id: i64,
+    pub task_id: String,
+    pub relative_path: String,
+    pub action_type: String,
+    pub status: String,
+    pub file_size: u64,
+    pub error_message: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// 任务项查询过滤器（FFI）
+#[derive(Debug, Clone)]
+pub struct TaskItemFilterFfi {
+    pub task_id: Option<String>,
+    pub relative_path_contains: Option<String>,
+    pub action_type: Option<String>,
+    pub status: Option<String>,
+    pub limit: u32,
+    pub offset: u32,
 }

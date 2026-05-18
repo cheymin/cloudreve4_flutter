@@ -188,3 +188,30 @@ impl EventDebouncer {
         self.pending.retain(|_, last| now.duration_since(*last) < self.debounce_window);
     }
 }
+
+/// 收集时间窗口内的批量远程事件
+/// 在 run_continuous() 中使用，将窗口内的事件合并为一个 SyncPlan
+pub async fn batch_remote_events(
+    rx: &mut mpsc::Receiver<RemoteFileEvent>,
+    window: Duration,
+) -> Vec<RemoteFileEvent> {
+    let mut events = Vec::new();
+
+    // 等待第一个事件
+    match tokio::time::timeout(window, rx.recv()).await {
+        Ok(Some(event)) => events.push(event),
+        _ => return events,
+    }
+
+    // 收集窗口内的剩余事件
+    let deadline = Instant::now() + window;
+    while Instant::now() < deadline {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        match tokio::time::timeout(remaining, rx.recv()).await {
+            Ok(Some(event)) => events.push(event),
+            _ => break,
+        }
+    }
+
+    events
+}

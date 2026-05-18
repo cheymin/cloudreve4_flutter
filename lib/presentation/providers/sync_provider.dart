@@ -75,6 +75,7 @@ class SyncProvider extends ChangeNotifier {
           bandwidthLimitKbps: configMap['bandwidthLimitKbps'] as int? ?? 0,
           dataDir: configMap['dataDir'] as String? ?? '',
         );
+        _log.i('恢复同步配置: 模式=${_persistedConfig!.syncMode}, 冲突=${_persistedConfig!.conflictStrategy}, 并发=${_persistedConfig!.maxConcurrentTransfers}, 带宽=${_persistedConfig!.bandwidthLimitKbps}kbps');
       } catch (e) {
         _log.e('恢复同步配置失败: $e');
       }
@@ -196,6 +197,22 @@ class SyncProvider extends ChangeNotifier {
     }
 
     await startSync(config);
+  }
+
+  /// 热更新配置（同步运行中修改配置，无需重启引擎）
+  Future<void> updateConfig(SyncConfigModel config) async {
+    // 持久化新配置
+    await _persistConfig(config);
+
+    // 如果引擎正在运行，推送到 Rust
+    if (isActive || isPaused) {
+      try {
+        await SyncService.instance.updateConfig(config);
+        _log.i('同步配置已热更新到引擎');
+      } catch (e) {
+        _log.e('热更新配置失败: $e');
+      }
+    }
   }
 
   /// 轮询 Rust 引擎状态

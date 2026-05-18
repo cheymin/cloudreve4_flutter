@@ -12,6 +12,12 @@ pub const SKIP_NAMES: &[&str] = &[
     "desktop.ini",
 ];
 
+/// 需要跳过的文件扩展名（同步临时文件）
+pub const SKIP_EXTENSIONS: &[&str] = &[
+    "sync_tmp",
+    "sync_temp",
+];
+
 pub struct FsScanner;
 
 impl FsScanner {
@@ -55,6 +61,12 @@ impl FsScanner {
             }
             if file_name.starts_with(".sync_") {
                 continue;
+            }
+            // 跳过临时文件扩展名
+            if let Some(ext) = entry.path().extension() {
+                if SKIP_EXTENSIONS.iter().any(|e| ext == *e) {
+                    continue;
+                }
             }
             // 跳过冲突副本文件
             if crate::utils::is_conflict_file(&file_name) {

@@ -68,7 +68,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
                   String get codegenVersion => '2.12.0';
 
                   @override
-                  int get rustContentHash => -922685216;
+                  int get rustContentHash => 1481458685;
 
                   static const kDefaultExternalLibraryLoaderConfig = ExternalLibraryLoaderConfig(
                     stem: 'sync_core',
@@ -88,15 +88,27 @@ Future<void> crateApiFfiDisposeSyncEngine();
 
 Future<SyncSummaryFfi> crateApiFfiForceSync();
 
+Future<List<SyncTaskFfi>> crateApiFfiGetActiveTasks();
+
+Future<int> crateApiFfiGetActiveWorkerCount();
+
+Future<List<SyncTaskFfi>> crateApiFfiGetRecentTasks({required int limit });
+
 Future<SyncConfigFfi> crateApiFfiGetSyncConfig();
 
 Future<SyncStatusFfi> crateApiFfiGetSyncStatus();
+
+Future<List<SyncTaskItemFfi>> crateApiFfiGetTaskDetail({required String taskId });
 
 Future<void> crateApiFfiHydrateFile({required String localPath });
 
 Future<void> crateApiFfiInitSyncEngine({required SyncConfigFfi config });
 
 Future<void> crateApiFfiPauseSync();
+
+Future<List<SyncTaskItemFfi>> crateApiFfiQueryTaskItems({required TaskItemFilterFfi filter });
+
+Stream<SyncEventFfi> crateApiFfiRegisterSyncEventSink();
 
 Future<void> crateApiFfiResumeSync();
 
@@ -224,11 +236,86 @@ Future<void> crateApiFfiUpdateTokens({required String accessToken });
         );
         
 
-@override Future<SyncConfigFfi> crateApiFfiGetSyncConfig()  { return handler.executeNormal(NormalTask(
+@override Future<List<SyncTaskFfi>> crateApiFfiGetActiveTasks()  { return handler.executeNormal(NormalTask(
             callFfi: (port_) {
               
             final serializer = SseSerializer(generalizedFrbRustBinding);
             pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 5, port: port_);
+            
+            },
+            codec: 
+        SseCodec(
+          decodeSuccessData: sse_decode_list_sync_task_ffi,
+          decodeErrorData: sse_decode_sync_error_ffi,
+        )
+        ,
+            constMeta: kCrateApiFfiGetActiveTasksConstMeta,
+            argValues: [],
+            apiImpl: this,
+        )); }
+
+
+        TaskConstMeta get kCrateApiFfiGetActiveTasksConstMeta => const TaskConstMeta(
+            debugName: "get_active_tasks",
+            argNames: [],
+        );
+        
+
+@override Future<int> crateApiFfiGetActiveWorkerCount()  { return handler.executeNormal(NormalTask(
+            callFfi: (port_) {
+              
+            final serializer = SseSerializer(generalizedFrbRustBinding);
+            pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 6, port: port_);
+            
+            },
+            codec: 
+        SseCodec(
+          decodeSuccessData: sse_decode_u_32,
+          decodeErrorData: sse_decode_sync_error_ffi,
+        )
+        ,
+            constMeta: kCrateApiFfiGetActiveWorkerCountConstMeta,
+            argValues: [],
+            apiImpl: this,
+        )); }
+
+
+        TaskConstMeta get kCrateApiFfiGetActiveWorkerCountConstMeta => const TaskConstMeta(
+            debugName: "get_active_worker_count",
+            argNames: [],
+        );
+        
+
+@override Future<List<SyncTaskFfi>> crateApiFfiGetRecentTasks({required int limit })  { return handler.executeNormal(NormalTask(
+            callFfi: (port_) {
+              
+            final serializer = SseSerializer(generalizedFrbRustBinding);sse_encode_u_32(limit, serializer);
+            pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 7, port: port_);
+            
+            },
+            codec: 
+        SseCodec(
+          decodeSuccessData: sse_decode_list_sync_task_ffi,
+          decodeErrorData: sse_decode_sync_error_ffi,
+        )
+        ,
+            constMeta: kCrateApiFfiGetRecentTasksConstMeta,
+            argValues: [limit],
+            apiImpl: this,
+        )); }
+
+
+        TaskConstMeta get kCrateApiFfiGetRecentTasksConstMeta => const TaskConstMeta(
+            debugName: "get_recent_tasks",
+            argNames: ["limit"],
+        );
+        
+
+@override Future<SyncConfigFfi> crateApiFfiGetSyncConfig()  { return handler.executeNormal(NormalTask(
+            callFfi: (port_) {
+              
+            final serializer = SseSerializer(generalizedFrbRustBinding);
+            pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 8, port: port_);
             
             },
             codec: 
@@ -253,7 +340,7 @@ Future<void> crateApiFfiUpdateTokens({required String accessToken });
             callFfi: (port_) {
               
             final serializer = SseSerializer(generalizedFrbRustBinding);
-            pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 6, port: port_);
+            pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 9, port: port_);
             
             },
             codec: 
@@ -274,11 +361,36 @@ Future<void> crateApiFfiUpdateTokens({required String accessToken });
         );
         
 
+@override Future<List<SyncTaskItemFfi>> crateApiFfiGetTaskDetail({required String taskId })  { return handler.executeNormal(NormalTask(
+            callFfi: (port_) {
+              
+            final serializer = SseSerializer(generalizedFrbRustBinding);sse_encode_String(taskId, serializer);
+            pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 10, port: port_);
+            
+            },
+            codec: 
+        SseCodec(
+          decodeSuccessData: sse_decode_list_sync_task_item_ffi,
+          decodeErrorData: sse_decode_sync_error_ffi,
+        )
+        ,
+            constMeta: kCrateApiFfiGetTaskDetailConstMeta,
+            argValues: [taskId],
+            apiImpl: this,
+        )); }
+
+
+        TaskConstMeta get kCrateApiFfiGetTaskDetailConstMeta => const TaskConstMeta(
+            debugName: "get_task_detail",
+            argNames: ["taskId"],
+        );
+        
+
 @override Future<void> crateApiFfiHydrateFile({required String localPath })  { return handler.executeNormal(NormalTask(
             callFfi: (port_) {
               
             final serializer = SseSerializer(generalizedFrbRustBinding);sse_encode_String(localPath, serializer);
-            pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 7, port: port_);
+            pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 11, port: port_);
             
             },
             codec: 
@@ -303,7 +415,7 @@ Future<void> crateApiFfiUpdateTokens({required String accessToken });
             callFfi: (port_) {
               
             final serializer = SseSerializer(generalizedFrbRustBinding);sse_encode_box_autoadd_sync_config_ffi(config, serializer);
-            pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 8, port: port_);
+            pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 12, port: port_);
             
             },
             codec: 
@@ -328,7 +440,7 @@ Future<void> crateApiFfiUpdateTokens({required String accessToken });
             callFfi: (port_) {
               
             final serializer = SseSerializer(generalizedFrbRustBinding);
-            pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 9, port: port_);
+            pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 13, port: port_);
             
             },
             codec: 
@@ -349,11 +461,65 @@ Future<void> crateApiFfiUpdateTokens({required String accessToken });
         );
         
 
+@override Future<List<SyncTaskItemFfi>> crateApiFfiQueryTaskItems({required TaskItemFilterFfi filter })  { return handler.executeNormal(NormalTask(
+            callFfi: (port_) {
+              
+            final serializer = SseSerializer(generalizedFrbRustBinding);sse_encode_box_autoadd_task_item_filter_ffi(filter, serializer);
+            pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 14, port: port_);
+            
+            },
+            codec: 
+        SseCodec(
+          decodeSuccessData: sse_decode_list_sync_task_item_ffi,
+          decodeErrorData: sse_decode_sync_error_ffi,
+        )
+        ,
+            constMeta: kCrateApiFfiQueryTaskItemsConstMeta,
+            argValues: [filter],
+            apiImpl: this,
+        )); }
+
+
+        TaskConstMeta get kCrateApiFfiQueryTaskItemsConstMeta => const TaskConstMeta(
+            debugName: "query_task_items",
+            argNames: ["filter"],
+        );
+        
+
+@override Stream<SyncEventFfi> crateApiFfiRegisterSyncEventSink()  { 
+            final sink = RustStreamSink<SyncEventFfi>();
+            unawaited(handler.executeNormal(NormalTask(
+            callFfi: (port_) {
+              
+            final serializer = SseSerializer(generalizedFrbRustBinding);sse_encode_StreamSink_sync_event_ffi_Sse(sink, serializer);
+            pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 15, port: port_);
+            
+            },
+            codec: 
+        SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_sync_error_ffi,
+        )
+        ,
+            constMeta: kCrateApiFfiRegisterSyncEventSinkConstMeta,
+            argValues: [sink],
+            apiImpl: this,
+        )));
+            return sink.stream;
+             }
+
+
+        TaskConstMeta get kCrateApiFfiRegisterSyncEventSinkConstMeta => const TaskConstMeta(
+            debugName: "register_sync_event_sink",
+            argNames: ["sink"],
+        );
+        
+
 @override Future<void> crateApiFfiResumeSync()  { return handler.executeNormal(NormalTask(
             callFfi: (port_) {
               
             final serializer = SseSerializer(generalizedFrbRustBinding);
-            pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 10, port: port_);
+            pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 16, port: port_);
             
             },
             codec: 
@@ -378,7 +544,7 @@ Future<void> crateApiFfiUpdateTokens({required String accessToken });
             callFfi: (port_) {
               
             final serializer = SseSerializer(generalizedFrbRustBinding);
-            pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 11, port: port_);
+            pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 17, port: port_);
             
             },
             codec: 
@@ -403,7 +569,7 @@ Future<void> crateApiFfiUpdateTokens({required String accessToken });
             callFfi: (port_) {
               
             final serializer = SseSerializer(generalizedFrbRustBinding);
-            pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 12, port: port_);
+            pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 18, port: port_);
             
             },
             codec: 
@@ -428,7 +594,7 @@ Future<void> crateApiFfiUpdateTokens({required String accessToken });
             callFfi: (port_) {
               
             final serializer = SseSerializer(generalizedFrbRustBinding);
-            pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 13, port: port_);
+            pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 19, port: port_);
             
             },
             codec: 
@@ -454,7 +620,7 @@ Future<void> crateApiFfiUpdateTokens({required String accessToken });
               
             final serializer = SseSerializer(generalizedFrbRustBinding);sse_encode_list_String(albumPaths, serializer);
 sse_encode_String(remoteDcimUri, serializer);
-            pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 14, port: port_);
+            pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 20, port: port_);
             
             },
             codec: 
@@ -479,7 +645,7 @@ sse_encode_String(remoteDcimUri, serializer);
             callFfi: (port_) {
               
             final serializer = SseSerializer(generalizedFrbRustBinding);sse_encode_box_autoadd_sync_config_ffi(config, serializer);
-            pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 15, port: port_);
+            pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 21, port: port_);
             
             },
             codec: 
@@ -504,7 +670,7 @@ sse_encode_String(remoteDcimUri, serializer);
             callFfi: (port_) {
               
             final serializer = SseSerializer(generalizedFrbRustBinding);sse_encode_String(accessToken, serializer);
-            pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 16, port: port_);
+            pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 22, port: port_);
             
             },
             codec: 
@@ -527,7 +693,13 @@ sse_encode_String(remoteDcimUri, serializer);
 
 
 
-                  @protected String dco_decode_String(dynamic raw){ // Codec=Dco (DartCObject based), see doc to use other codecs
+                  @protected AnyhowException dco_decode_AnyhowException(dynamic raw){ // Codec=Dco (DartCObject based), see doc to use other codecs
+return AnyhowException(raw as String); }
+
+@protected RustStreamSink<SyncEventFfi> dco_decode_StreamSink_sync_event_ffi_Sse(dynamic raw){ // Codec=Dco (DartCObject based), see doc to use other codecs
+throw UnimplementedError(); }
+
+@protected String dco_decode_String(dynamic raw){ // Codec=Dco (DartCObject based), see doc to use other codecs
 return raw as String; }
 
 @protected bool dco_decode_bool(dynamic raw){ // Codec=Dco (DartCObject based), see doc to use other codecs
@@ -535,6 +707,12 @@ return raw as bool; }
 
 @protected SyncConfigFfi dco_decode_box_autoadd_sync_config_ffi(dynamic raw){ // Codec=Dco (DartCObject based), see doc to use other codecs
 return dco_decode_sync_config_ffi(raw); }
+
+@protected SyncSummaryFfi dco_decode_box_autoadd_sync_summary_ffi(dynamic raw){ // Codec=Dco (DartCObject based), see doc to use other codecs
+return dco_decode_sync_summary_ffi(raw); }
+
+@protected TaskItemFilterFfi dco_decode_box_autoadd_task_item_filter_ffi(dynamic raw){ // Codec=Dco (DartCObject based), see doc to use other codecs
+return dco_decode_task_item_filter_ffi(raw); }
 
 @protected CloudAlbumCheckResultFfi dco_decode_cloud_album_check_result_ffi(dynamic raw){ // Codec=Dco (DartCObject based), see doc to use other codecs
 final arr = raw as List<dynamic>;
@@ -544,11 +722,20 @@ picturesExists: dco_decode_bool(arr[1]),
 dcimUri: dco_decode_opt_String(arr[2]),
 picturesUri: dco_decode_opt_String(arr[3]),); }
 
+@protected PlatformInt64 dco_decode_i_64(dynamic raw){ // Codec=Dco (DartCObject based), see doc to use other codecs
+return dcoDecodeI64(raw); }
+
 @protected List<String> dco_decode_list_String(dynamic raw){ // Codec=Dco (DartCObject based), see doc to use other codecs
 return (raw as List<dynamic>).map(dco_decode_String).toList(); }
 
 @protected Uint8List dco_decode_list_prim_u_8_strict(dynamic raw){ // Codec=Dco (DartCObject based), see doc to use other codecs
 return raw as Uint8List; }
+
+@protected List<SyncTaskFfi> dco_decode_list_sync_task_ffi(dynamic raw){ // Codec=Dco (DartCObject based), see doc to use other codecs
+return (raw as List<dynamic>).map(dco_decode_sync_task_ffi).toList(); }
+
+@protected List<SyncTaskItemFfi> dco_decode_list_sync_task_item_ffi(dynamic raw){ // Codec=Dco (DartCObject based), see doc to use other codecs
+return (raw as List<dynamic>).map(dco_decode_sync_task_item_ffi).toList(); }
 
 @protected String? dco_decode_opt_String(dynamic raw){ // Codec=Dco (DartCObject based), see doc to use other codecs
 return raw == null ? null : dco_decode_String(raw); }
@@ -580,6 +767,24 @@ case 5: return SyncErrorFfi_InternalError(message: dco_decode_String(raw[1]),);
                 default: throw Exception("unreachable");
             } }
 
+@protected SyncEventFfi dco_decode_sync_event_ffi(dynamic raw){ // Codec=Dco (DartCObject based), see doc to use other codecs
+switch (raw[0]) {
+                case 0: return SyncEventFfi_StateChanged(newState: dco_decode_String(raw[1]),);
+case 1: return SyncEventFfi_Progress(synced: dco_decode_u_64(raw[1]),total: dco_decode_u_64(raw[2]),currentFile: dco_decode_String(raw[3]),);
+case 2: return SyncEventFfi_FileUploaded(localPath: dco_decode_String(raw[1]),remoteUri: dco_decode_String(raw[2]),);
+case 3: return SyncEventFfi_FileDownloaded(localPath: dco_decode_String(raw[1]),remoteUri: dco_decode_String(raw[2]),);
+case 4: return SyncEventFfi_ConflictDetected(localPath: dco_decode_String(raw[1]),conflictType: dco_decode_String(raw[2]),);
+case 5: return SyncEventFfi_Error(message: dco_decode_String(raw[1]),recoverable: dco_decode_bool(raw[2]),);
+case 6: return SyncEventFfi_TokenExpired();
+case 7: return SyncEventFfi_DiskSpaceWarning(availableMb: dco_decode_u_64(raw[1]),);
+case 8: return SyncEventFfi_InitialSyncComplete(summary: dco_decode_box_autoadd_sync_summary_ffi(raw[1]),);
+case 9: return SyncEventFfi_WorkerStarted(taskId: dco_decode_String(raw[1]),trigger: dco_decode_String(raw[2]),uploadCount: dco_decode_u_32(raw[3]),downloadCount: dco_decode_u_32(raw[4]),);
+case 10: return SyncEventFfi_WorkerCompleted(taskId: dco_decode_String(raw[1]),uploaded: dco_decode_u_32(raw[2]),downloaded: dco_decode_u_32(raw[3]),failed: dco_decode_u_32(raw[4]),durationMs: dco_decode_u_64(raw[5]),);
+case 11: return SyncEventFfi_WorkerFailed(taskId: dco_decode_String(raw[1]),message: dco_decode_String(raw[2]),);
+case 12: return SyncEventFfi_TaskItemUpdated(taskId: dco_decode_String(raw[1]),relativePath: dco_decode_String(raw[2]),action: dco_decode_String(raw[3]),status: dco_decode_String(raw[4]),);
+                default: throw Exception("unreachable");
+            } }
+
 @protected SyncStatusFfi dco_decode_sync_status_ffi(dynamic raw){ // Codec=Dco (DartCObject based), see doc to use other codecs
 final arr = raw as List<dynamic>;
                 if (arr.length != 9) throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
@@ -604,6 +809,42 @@ deletedLocal: dco_decode_u_32(arr[4]),
 deletedRemote: dco_decode_u_32(arr[5]),
 durationMs: dco_decode_u_64(arr[6]),); }
 
+@protected SyncTaskFfi dco_decode_sync_task_ffi(dynamic raw){ // Codec=Dco (DartCObject based), see doc to use other codecs
+final arr = raw as List<dynamic>;
+                if (arr.length != 9) throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
+                return SyncTaskFfi(id: dco_decode_String(arr[0]),
+trigger: dco_decode_String(arr[1]),
+totalCount: dco_decode_u_32(arr[2]),
+completedCount: dco_decode_u_32(arr[3]),
+failedCount: dco_decode_u_32(arr[4]),
+status: dco_decode_String(arr[5]),
+createdAt: dco_decode_String(arr[6]),
+updatedAt: dco_decode_String(arr[7]),
+finishedAt: dco_decode_opt_String(arr[8]),); }
+
+@protected SyncTaskItemFfi dco_decode_sync_task_item_ffi(dynamic raw){ // Codec=Dco (DartCObject based), see doc to use other codecs
+final arr = raw as List<dynamic>;
+                if (arr.length != 9) throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
+                return SyncTaskItemFfi(id: dco_decode_i_64(arr[0]),
+taskId: dco_decode_String(arr[1]),
+relativePath: dco_decode_String(arr[2]),
+actionType: dco_decode_String(arr[3]),
+status: dco_decode_String(arr[4]),
+fileSize: dco_decode_u_64(arr[5]),
+errorMessage: dco_decode_opt_String(arr[6]),
+createdAt: dco_decode_String(arr[7]),
+updatedAt: dco_decode_String(arr[8]),); }
+
+@protected TaskItemFilterFfi dco_decode_task_item_filter_ffi(dynamic raw){ // Codec=Dco (DartCObject based), see doc to use other codecs
+final arr = raw as List<dynamic>;
+                if (arr.length != 6) throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+                return TaskItemFilterFfi(taskId: dco_decode_opt_String(arr[0]),
+relativePathContains: dco_decode_opt_String(arr[1]),
+actionType: dco_decode_opt_String(arr[2]),
+status: dco_decode_opt_String(arr[3]),
+limit: dco_decode_u_32(arr[4]),
+offset: dco_decode_u_32(arr[5]),); }
+
 @protected int dco_decode_u_32(dynamic raw){ // Codec=Dco (DartCObject based), see doc to use other codecs
 return raw as int; }
 
@@ -616,6 +857,13 @@ return raw as int; }
 @protected void dco_decode_unit(dynamic raw){ // Codec=Dco (DartCObject based), see doc to use other codecs
 return; }
 
+@protected AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer){ // Codec=Sse (Serialization based), see doc to use other codecs
+var inner = sse_decode_String(deserializer);
+        return AnyhowException(inner); }
+
+@protected RustStreamSink<SyncEventFfi> sse_decode_StreamSink_sync_event_ffi_Sse(SseDeserializer deserializer){ // Codec=Sse (Serialization based), see doc to use other codecs
+throw UnimplementedError('Unreachable ()'); }
+
 @protected String sse_decode_String(SseDeserializer deserializer){ // Codec=Sse (Serialization based), see doc to use other codecs
 var inner = sse_decode_list_prim_u_8_strict(deserializer);
         return utf8.decoder.convert(inner); }
@@ -626,12 +874,21 @@ return deserializer.buffer.getUint8() != 0; }
 @protected SyncConfigFfi sse_decode_box_autoadd_sync_config_ffi(SseDeserializer deserializer){ // Codec=Sse (Serialization based), see doc to use other codecs
 return (sse_decode_sync_config_ffi(deserializer)); }
 
+@protected SyncSummaryFfi sse_decode_box_autoadd_sync_summary_ffi(SseDeserializer deserializer){ // Codec=Sse (Serialization based), see doc to use other codecs
+return (sse_decode_sync_summary_ffi(deserializer)); }
+
+@protected TaskItemFilterFfi sse_decode_box_autoadd_task_item_filter_ffi(SseDeserializer deserializer){ // Codec=Sse (Serialization based), see doc to use other codecs
+return (sse_decode_task_item_filter_ffi(deserializer)); }
+
 @protected CloudAlbumCheckResultFfi sse_decode_cloud_album_check_result_ffi(SseDeserializer deserializer){ // Codec=Sse (Serialization based), see doc to use other codecs
 var var_dcimExists = sse_decode_bool(deserializer);
 var var_picturesExists = sse_decode_bool(deserializer);
 var var_dcimUri = sse_decode_opt_String(deserializer);
 var var_picturesUri = sse_decode_opt_String(deserializer);
 return CloudAlbumCheckResultFfi(dcimExists: var_dcimExists, picturesExists: var_picturesExists, dcimUri: var_dcimUri, picturesUri: var_picturesUri); }
+
+@protected PlatformInt64 sse_decode_i_64(SseDeserializer deserializer){ // Codec=Sse (Serialization based), see doc to use other codecs
+return deserializer.buffer.getPlatformInt64(); }
 
 @protected List<String> sse_decode_list_String(SseDeserializer deserializer){ // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -644,6 +901,22 @@ return CloudAlbumCheckResultFfi(dcimExists: var_dcimExists, picturesExists: var_
 @protected Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer){ // Codec=Sse (Serialization based), see doc to use other codecs
 var len_ = sse_decode_i_32(deserializer);
                 return deserializer.buffer.getUint8List(len_); }
+
+@protected List<SyncTaskFfi> sse_decode_list_sync_task_ffi(SseDeserializer deserializer){ // Codec=Sse (Serialization based), see doc to use other codecs
+
+        var len_ = sse_decode_i_32(deserializer);
+        var ans_ = <SyncTaskFfi>[];
+        for (var idx_ = 0; idx_ < len_; ++idx_) { ans_.add(sse_decode_sync_task_ffi(deserializer)); }
+        return ans_;
+         }
+
+@protected List<SyncTaskItemFfi> sse_decode_list_sync_task_item_ffi(SseDeserializer deserializer){ // Codec=Sse (Serialization based), see doc to use other codecs
+
+        var len_ = sse_decode_i_32(deserializer);
+        var ans_ = <SyncTaskItemFfi>[];
+        for (var idx_ = 0; idx_ < len_; ++idx_) { ans_.add(sse_decode_sync_task_item_ffi(deserializer)); }
+        return ans_;
+         }
 
 @protected String? sse_decode_opt_String(SseDeserializer deserializer){ // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -681,6 +954,41 @@ return SyncErrorFfi_ConflictError(count: var_count);case 5: var var_message = ss
 return SyncErrorFfi_InternalError(message: var_message); default: throw UnimplementedError(''); }
              }
 
+@protected SyncEventFfi sse_decode_sync_event_ffi(SseDeserializer deserializer){ // Codec=Sse (Serialization based), see doc to use other codecs
+
+            var tag_ = sse_decode_i_32(deserializer);
+            switch (tag_) { case 0: var var_newState = sse_decode_String(deserializer);
+return SyncEventFfi_StateChanged(newState: var_newState);case 1: var var_synced = sse_decode_u_64(deserializer);
+var var_total = sse_decode_u_64(deserializer);
+var var_currentFile = sse_decode_String(deserializer);
+return SyncEventFfi_Progress(synced: var_synced, total: var_total, currentFile: var_currentFile);case 2: var var_localPath = sse_decode_String(deserializer);
+var var_remoteUri = sse_decode_String(deserializer);
+return SyncEventFfi_FileUploaded(localPath: var_localPath, remoteUri: var_remoteUri);case 3: var var_localPath = sse_decode_String(deserializer);
+var var_remoteUri = sse_decode_String(deserializer);
+return SyncEventFfi_FileDownloaded(localPath: var_localPath, remoteUri: var_remoteUri);case 4: var var_localPath = sse_decode_String(deserializer);
+var var_conflictType = sse_decode_String(deserializer);
+return SyncEventFfi_ConflictDetected(localPath: var_localPath, conflictType: var_conflictType);case 5: var var_message = sse_decode_String(deserializer);
+var var_recoverable = sse_decode_bool(deserializer);
+return SyncEventFfi_Error(message: var_message, recoverable: var_recoverable);case 6: return SyncEventFfi_TokenExpired();case 7: var var_availableMb = sse_decode_u_64(deserializer);
+return SyncEventFfi_DiskSpaceWarning(availableMb: var_availableMb);case 8: var var_summary = sse_decode_box_autoadd_sync_summary_ffi(deserializer);
+return SyncEventFfi_InitialSyncComplete(summary: var_summary);case 9: var var_taskId = sse_decode_String(deserializer);
+var var_trigger = sse_decode_String(deserializer);
+var var_uploadCount = sse_decode_u_32(deserializer);
+var var_downloadCount = sse_decode_u_32(deserializer);
+return SyncEventFfi_WorkerStarted(taskId: var_taskId, trigger: var_trigger, uploadCount: var_uploadCount, downloadCount: var_downloadCount);case 10: var var_taskId = sse_decode_String(deserializer);
+var var_uploaded = sse_decode_u_32(deserializer);
+var var_downloaded = sse_decode_u_32(deserializer);
+var var_failed = sse_decode_u_32(deserializer);
+var var_durationMs = sse_decode_u_64(deserializer);
+return SyncEventFfi_WorkerCompleted(taskId: var_taskId, uploaded: var_uploaded, downloaded: var_downloaded, failed: var_failed, durationMs: var_durationMs);case 11: var var_taskId = sse_decode_String(deserializer);
+var var_message = sse_decode_String(deserializer);
+return SyncEventFfi_WorkerFailed(taskId: var_taskId, message: var_message);case 12: var var_taskId = sse_decode_String(deserializer);
+var var_relativePath = sse_decode_String(deserializer);
+var var_action = sse_decode_String(deserializer);
+var var_status = sse_decode_String(deserializer);
+return SyncEventFfi_TaskItemUpdated(taskId: var_taskId, relativePath: var_relativePath, action: var_action, status: var_status); default: throw UnimplementedError(''); }
+             }
+
 @protected SyncStatusFfi sse_decode_sync_status_ffi(SseDeserializer deserializer){ // Codec=Sse (Serialization based), see doc to use other codecs
 var var_state = sse_decode_String(deserializer);
 var var_syncedFiles = sse_decode_u_64(deserializer);
@@ -703,6 +1011,39 @@ var var_deletedRemote = sse_decode_u_32(deserializer);
 var var_durationMs = sse_decode_u_64(deserializer);
 return SyncSummaryFfi(uploaded: var_uploaded, downloaded: var_downloaded, conflicts: var_conflicts, skipped: var_skipped, deletedLocal: var_deletedLocal, deletedRemote: var_deletedRemote, durationMs: var_durationMs); }
 
+@protected SyncTaskFfi sse_decode_sync_task_ffi(SseDeserializer deserializer){ // Codec=Sse (Serialization based), see doc to use other codecs
+var var_id = sse_decode_String(deserializer);
+var var_trigger = sse_decode_String(deserializer);
+var var_totalCount = sse_decode_u_32(deserializer);
+var var_completedCount = sse_decode_u_32(deserializer);
+var var_failedCount = sse_decode_u_32(deserializer);
+var var_status = sse_decode_String(deserializer);
+var var_createdAt = sse_decode_String(deserializer);
+var var_updatedAt = sse_decode_String(deserializer);
+var var_finishedAt = sse_decode_opt_String(deserializer);
+return SyncTaskFfi(id: var_id, trigger: var_trigger, totalCount: var_totalCount, completedCount: var_completedCount, failedCount: var_failedCount, status: var_status, createdAt: var_createdAt, updatedAt: var_updatedAt, finishedAt: var_finishedAt); }
+
+@protected SyncTaskItemFfi sse_decode_sync_task_item_ffi(SseDeserializer deserializer){ // Codec=Sse (Serialization based), see doc to use other codecs
+var var_id = sse_decode_i_64(deserializer);
+var var_taskId = sse_decode_String(deserializer);
+var var_relativePath = sse_decode_String(deserializer);
+var var_actionType = sse_decode_String(deserializer);
+var var_status = sse_decode_String(deserializer);
+var var_fileSize = sse_decode_u_64(deserializer);
+var var_errorMessage = sse_decode_opt_String(deserializer);
+var var_createdAt = sse_decode_String(deserializer);
+var var_updatedAt = sse_decode_String(deserializer);
+return SyncTaskItemFfi(id: var_id, taskId: var_taskId, relativePath: var_relativePath, actionType: var_actionType, status: var_status, fileSize: var_fileSize, errorMessage: var_errorMessage, createdAt: var_createdAt, updatedAt: var_updatedAt); }
+
+@protected TaskItemFilterFfi sse_decode_task_item_filter_ffi(SseDeserializer deserializer){ // Codec=Sse (Serialization based), see doc to use other codecs
+var var_taskId = sse_decode_opt_String(deserializer);
+var var_relativePathContains = sse_decode_opt_String(deserializer);
+var var_actionType = sse_decode_opt_String(deserializer);
+var var_status = sse_decode_opt_String(deserializer);
+var var_limit = sse_decode_u_32(deserializer);
+var var_offset = sse_decode_u_32(deserializer);
+return TaskItemFilterFfi(taskId: var_taskId, relativePathContains: var_relativePathContains, actionType: var_actionType, status: var_status, limit: var_limit, offset: var_offset); }
+
 @protected int sse_decode_u_32(SseDeserializer deserializer){ // Codec=Sse (Serialization based), see doc to use other codecs
 return deserializer.buffer.getUint32(); }
 
@@ -718,6 +1059,15 @@ return deserializer.buffer.getUint8(); }
 @protected int sse_decode_i_32(SseDeserializer deserializer){ // Codec=Sse (Serialization based), see doc to use other codecs
 return deserializer.buffer.getInt32(); }
 
+@protected void sse_encode_AnyhowException(AnyhowException self, SseSerializer serializer){ // Codec=Sse (Serialization based), see doc to use other codecs
+sse_encode_String(self.message, serializer); }
+
+@protected void sse_encode_StreamSink_sync_event_ffi_Sse(RustStreamSink<SyncEventFfi> self, SseSerializer serializer){ // Codec=Sse (Serialization based), see doc to use other codecs
+sse_encode_String(self.setupAndSerialize(codec: SseCodec(
+            decodeSuccessData: sse_decode_sync_event_ffi,
+            decodeErrorData: sse_decode_AnyhowException,
+        )), serializer); }
+
 @protected void sse_encode_String(String self, SseSerializer serializer){ // Codec=Sse (Serialization based), see doc to use other codecs
 sse_encode_list_prim_u_8_strict(utf8.encoder.convert(self), serializer); }
 
@@ -727,12 +1077,21 @@ serializer.buffer.putUint8(self ? 1 : 0); }
 @protected void sse_encode_box_autoadd_sync_config_ffi(SyncConfigFfi self, SseSerializer serializer){ // Codec=Sse (Serialization based), see doc to use other codecs
 sse_encode_sync_config_ffi(self, serializer); }
 
+@protected void sse_encode_box_autoadd_sync_summary_ffi(SyncSummaryFfi self, SseSerializer serializer){ // Codec=Sse (Serialization based), see doc to use other codecs
+sse_encode_sync_summary_ffi(self, serializer); }
+
+@protected void sse_encode_box_autoadd_task_item_filter_ffi(TaskItemFilterFfi self, SseSerializer serializer){ // Codec=Sse (Serialization based), see doc to use other codecs
+sse_encode_task_item_filter_ffi(self, serializer); }
+
 @protected void sse_encode_cloud_album_check_result_ffi(CloudAlbumCheckResultFfi self, SseSerializer serializer){ // Codec=Sse (Serialization based), see doc to use other codecs
 sse_encode_bool(self.dcimExists, serializer);
 sse_encode_bool(self.picturesExists, serializer);
 sse_encode_opt_String(self.dcimUri, serializer);
 sse_encode_opt_String(self.picturesUri, serializer);
  }
+
+@protected void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer){ // Codec=Sse (Serialization based), see doc to use other codecs
+serializer.buffer.putPlatformInt64(self); }
 
 @protected void sse_encode_list_String(List<String> self, SseSerializer serializer){ // Codec=Sse (Serialization based), see doc to use other codecs
 sse_encode_i_32(self.length, serializer);
@@ -741,6 +1100,14 @@ sse_encode_i_32(self.length, serializer);
 @protected void sse_encode_list_prim_u_8_strict(Uint8List self, SseSerializer serializer){ // Codec=Sse (Serialization based), see doc to use other codecs
 sse_encode_i_32(self.length, serializer);
                     serializer.buffer.putUint8List(self); }
+
+@protected void sse_encode_list_sync_task_ffi(List<SyncTaskFfi> self, SseSerializer serializer){ // Codec=Sse (Serialization based), see doc to use other codecs
+sse_encode_i_32(self.length, serializer);
+        for (final item in self) { sse_encode_sync_task_ffi(item, serializer); } }
+
+@protected void sse_encode_list_sync_task_item_ffi(List<SyncTaskItemFfi> self, SseSerializer serializer){ // Codec=Sse (Serialization based), see doc to use other codecs
+sse_encode_i_32(self.length, serializer);
+        for (final item in self) { sse_encode_sync_task_item_ffi(item, serializer); } }
 
 @protected void sse_encode_opt_String(String? self, SseSerializer serializer){ // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -774,6 +1141,38 @@ case SyncErrorFfi_ConflictError(count: final count): sse_encode_i_32(4, serializ
 case SyncErrorFfi_InternalError(message: final message): sse_encode_i_32(5, serializer); sse_encode_String(message, serializer);
   } }
 
+@protected void sse_encode_sync_event_ffi(SyncEventFfi self, SseSerializer serializer){ // Codec=Sse (Serialization based), see doc to use other codecs
+switch (self) { case SyncEventFfi_StateChanged(newState: final newState): sse_encode_i_32(0, serializer); sse_encode_String(newState, serializer);
+case SyncEventFfi_Progress(synced: final synced,total: final total,currentFile: final currentFile): sse_encode_i_32(1, serializer); sse_encode_u_64(synced, serializer);
+sse_encode_u_64(total, serializer);
+sse_encode_String(currentFile, serializer);
+case SyncEventFfi_FileUploaded(localPath: final localPath,remoteUri: final remoteUri): sse_encode_i_32(2, serializer); sse_encode_String(localPath, serializer);
+sse_encode_String(remoteUri, serializer);
+case SyncEventFfi_FileDownloaded(localPath: final localPath,remoteUri: final remoteUri): sse_encode_i_32(3, serializer); sse_encode_String(localPath, serializer);
+sse_encode_String(remoteUri, serializer);
+case SyncEventFfi_ConflictDetected(localPath: final localPath,conflictType: final conflictType): sse_encode_i_32(4, serializer); sse_encode_String(localPath, serializer);
+sse_encode_String(conflictType, serializer);
+case SyncEventFfi_Error(message: final message,recoverable: final recoverable): sse_encode_i_32(5, serializer); sse_encode_String(message, serializer);
+sse_encode_bool(recoverable, serializer);
+case SyncEventFfi_TokenExpired(): sse_encode_i_32(6, serializer); case SyncEventFfi_DiskSpaceWarning(availableMb: final availableMb): sse_encode_i_32(7, serializer); sse_encode_u_64(availableMb, serializer);
+case SyncEventFfi_InitialSyncComplete(summary: final summary): sse_encode_i_32(8, serializer); sse_encode_box_autoadd_sync_summary_ffi(summary, serializer);
+case SyncEventFfi_WorkerStarted(taskId: final taskId,trigger: final trigger,uploadCount: final uploadCount,downloadCount: final downloadCount): sse_encode_i_32(9, serializer); sse_encode_String(taskId, serializer);
+sse_encode_String(trigger, serializer);
+sse_encode_u_32(uploadCount, serializer);
+sse_encode_u_32(downloadCount, serializer);
+case SyncEventFfi_WorkerCompleted(taskId: final taskId,uploaded: final uploaded,downloaded: final downloaded,failed: final failed,durationMs: final durationMs): sse_encode_i_32(10, serializer); sse_encode_String(taskId, serializer);
+sse_encode_u_32(uploaded, serializer);
+sse_encode_u_32(downloaded, serializer);
+sse_encode_u_32(failed, serializer);
+sse_encode_u_64(durationMs, serializer);
+case SyncEventFfi_WorkerFailed(taskId: final taskId,message: final message): sse_encode_i_32(11, serializer); sse_encode_String(taskId, serializer);
+sse_encode_String(message, serializer);
+case SyncEventFfi_TaskItemUpdated(taskId: final taskId,relativePath: final relativePath,action: final action,status: final status): sse_encode_i_32(12, serializer); sse_encode_String(taskId, serializer);
+sse_encode_String(relativePath, serializer);
+sse_encode_String(action, serializer);
+sse_encode_String(status, serializer);
+  } }
+
 @protected void sse_encode_sync_status_ffi(SyncStatusFfi self, SseSerializer serializer){ // Codec=Sse (Serialization based), see doc to use other codecs
 sse_encode_String(self.state, serializer);
 sse_encode_u_64(self.syncedFiles, serializer);
@@ -794,6 +1193,39 @@ sse_encode_u_32(self.skipped, serializer);
 sse_encode_u_32(self.deletedLocal, serializer);
 sse_encode_u_32(self.deletedRemote, serializer);
 sse_encode_u_64(self.durationMs, serializer);
+ }
+
+@protected void sse_encode_sync_task_ffi(SyncTaskFfi self, SseSerializer serializer){ // Codec=Sse (Serialization based), see doc to use other codecs
+sse_encode_String(self.id, serializer);
+sse_encode_String(self.trigger, serializer);
+sse_encode_u_32(self.totalCount, serializer);
+sse_encode_u_32(self.completedCount, serializer);
+sse_encode_u_32(self.failedCount, serializer);
+sse_encode_String(self.status, serializer);
+sse_encode_String(self.createdAt, serializer);
+sse_encode_String(self.updatedAt, serializer);
+sse_encode_opt_String(self.finishedAt, serializer);
+ }
+
+@protected void sse_encode_sync_task_item_ffi(SyncTaskItemFfi self, SseSerializer serializer){ // Codec=Sse (Serialization based), see doc to use other codecs
+sse_encode_i_64(self.id, serializer);
+sse_encode_String(self.taskId, serializer);
+sse_encode_String(self.relativePath, serializer);
+sse_encode_String(self.actionType, serializer);
+sse_encode_String(self.status, serializer);
+sse_encode_u_64(self.fileSize, serializer);
+sse_encode_opt_String(self.errorMessage, serializer);
+sse_encode_String(self.createdAt, serializer);
+sse_encode_String(self.updatedAt, serializer);
+ }
+
+@protected void sse_encode_task_item_filter_ffi(TaskItemFilterFfi self, SseSerializer serializer){ // Codec=Sse (Serialization based), see doc to use other codecs
+sse_encode_opt_String(self.taskId, serializer);
+sse_encode_opt_String(self.relativePathContains, serializer);
+sse_encode_opt_String(self.actionType, serializer);
+sse_encode_opt_String(self.status, serializer);
+sse_encode_u_32(self.limit, serializer);
+sse_encode_u_32(self.offset, serializer);
  }
 
 @protected void sse_encode_u_32(int self, SseSerializer serializer){ // Codec=Sse (Serialization based), see doc to use other codecs

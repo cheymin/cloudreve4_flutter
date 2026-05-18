@@ -8,7 +8,7 @@ import 'ffi_types.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 
-            // These functions are ignored because they are not marked as `pub`: `album_result_to_ffi`, `config_from_ffi`, `config_to_ffi`, `error_to_ffi`, `get_engine`, `status_to_ffi`, `summary_to_ffi`
+            // These functions are ignored because they are not marked as `pub`: `album_result_to_ffi`, `config_from_ffi`, `config_to_ffi`, `error_to_ffi`, `get_engine`, `status_to_ffi`, `summary_to_ffi`, `task_item_to_ffi`, `task_to_ffi`
 
 
             /// 初始化同步引擎
@@ -38,6 +38,9 @@ Future<SyncSummaryFfi>  forceSync() => RustSyncApi.instance.api.crateApiFfiForce
 /// 获取同步状态快照
 Future<SyncStatusFfi>  getSyncStatus() => RustSyncApi.instance.api.crateApiFfiGetSyncStatus();
 
+/// 获取活跃 Worker 数量
+Future<int>  getActiveWorkerCount() => RustSyncApi.instance.api.crateApiFfiGetActiveWorkerCount();
+
 /// 获取同步配置
 Future<SyncConfigFfi>  getSyncConfig() => RustSyncApi.instance.api.crateApiFfiGetSyncConfig();
 
@@ -58,6 +61,21 @@ Future<CloudAlbumCheckResultFfi>  checkCloudAlbumDirs({required String baseUri }
 
 /// 在云端创建 DCIM/Pictures 目录
 Future<void>  createCloudAlbumDirs({required String baseUri }) => RustSyncApi.instance.api.crateApiFfiCreateCloudAlbumDirs(baseUri: baseUri);
+
+/// 注册 Rust→Dart 事件推送通道
+Stream<SyncEventFfi>  registerSyncEventSink() => RustSyncApi.instance.api.crateApiFfiRegisterSyncEventSink();
+
+/// 获取活跃的同步任务列表
+Future<List<SyncTaskFfi>>  getActiveTasks() => RustSyncApi.instance.api.crateApiFfiGetActiveTasks();
+
+/// 获取最近同步任务列表
+Future<List<SyncTaskFfi>>  getRecentTasks({required int limit }) => RustSyncApi.instance.api.crateApiFfiGetRecentTasks(limit: limit);
+
+/// 获取任务详情（任务项列表）
+Future<List<SyncTaskItemFfi>>  getTaskDetail({required String taskId }) => RustSyncApi.instance.api.crateApiFfiGetTaskDetail(taskId: taskId);
+
+/// 多维度查询任务项
+Future<List<SyncTaskItemFfi>>  queryTaskItems({required TaskItemFilterFfi filter }) => RustSyncApi.instance.api.crateApiFfiQueryTaskItems(filter: filter);
 
             
             

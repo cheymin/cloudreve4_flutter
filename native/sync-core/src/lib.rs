@@ -10,6 +10,12 @@ pub mod conflict_resolver;
 pub mod transfer;
 pub mod event_handler;
 pub mod sync_engine;
+pub mod file_lock;
+pub mod diff;
+pub mod uploader;
+pub mod downloader;
+pub mod worker;
+pub mod event_sink;
 
 // 平台适配器 trait
 use async_trait::async_trait;

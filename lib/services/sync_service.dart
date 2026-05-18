@@ -73,10 +73,69 @@ class SyncService {
     await ffi.updateTokens(accessToken: accessToken);
   }
 
+  /// 热更新同步配置（不重启引擎）
+  Future<void> updateConfig(SyncConfigModel config) async {
+    _log.d('热更新同步配置');
+    await ffi.updateSyncConfig(config: config.toFfi());
+  }
+
   /// 获取同步状态快照
   Future<SyncStatusModel> getStatus() async {
     final status = await ffi.getSyncStatus();
     return SyncStatusModel.fromFfi(status);
+  }
+
+  /// 获取活跃 Worker 数量
+  Future<int> getActiveWorkerCount() async {
+    return await ffi.getActiveWorkerCount();
+  }
+
+  /// 获取活跃的同步任务列表
+  Future<List<Map<String, dynamic>>> getActiveTasks() async {
+    final tasks = await ffi.getActiveTasks();
+    return tasks.map((t) => {
+      'id': t.id,
+      'trigger': t.trigger,
+      'totalCount': t.totalCount,
+      'completedCount': t.completedCount,
+      'failedCount': t.failedCount,
+      'status': t.status,
+      'createdAt': t.createdAt,
+      'updatedAt': t.updatedAt,
+      'finishedAt': t.finishedAt,
+    }).toList();
+  }
+
+  /// 获取最近同步任务列表
+  Future<List<Map<String, dynamic>>> getRecentTasks({int limit = 20}) async {
+    final tasks = await ffi.getRecentTasks(limit: limit);
+    return tasks.map((t) => {
+      'id': t.id,
+      'trigger': t.trigger,
+      'totalCount': t.totalCount,
+      'completedCount': t.completedCount,
+      'failedCount': t.failedCount,
+      'status': t.status,
+      'createdAt': t.createdAt,
+      'updatedAt': t.updatedAt,
+      'finishedAt': t.finishedAt,
+    }).toList();
+  }
+
+  /// 获取任务详情
+  Future<List<Map<String, dynamic>>> getTaskDetail(String taskId) async {
+    final items = await ffi.getTaskDetail(taskId: taskId);
+    return items.map((i) => {
+      'id': i.id.toInt(),
+      'taskId': i.taskId,
+      'relativePath': i.relativePath,
+      'actionType': i.actionType,
+      'status': i.status,
+      'fileSize': i.fileSize,
+      'errorMessage': i.errorMessage,
+      'createdAt': i.createdAt,
+      'updatedAt': i.updatedAt,
+    }).toList();
   }
 
   /// 水合文件 (Windows CFAPi)

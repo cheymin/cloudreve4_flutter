@@ -95,14 +95,14 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
                   subtitle: const Text('双向同步所有文件'),
                   value: 'full',
                   groupValue: _syncMode,
-                  onChanged: (v) => setState(() => _syncMode = v!),
+                  onChanged: (v) { setState(() => _syncMode = v!); _pushConfigIfActive(); },
                 ),
                 RadioListTile<String>(
                   title: const Text('选择性同步'),
                   subtitle: const Text('仅同步指定目录'),
                   value: 'selective',
                   groupValue: _syncMode,
-                  onChanged: (v) => setState(() => _syncMode = v!),
+                  onChanged: (v) { setState(() => _syncMode = v!); _pushConfigIfActive(); },
                 ),
                 if (Platform.isAndroid)
                   RadioListTile<String>(
@@ -110,7 +110,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
                     subtitle: const Text('自动备份手机照片到云端'),
                     value: 'album',
                     groupValue: _syncMode,
-                    onChanged: (v) => setState(() => _syncMode = v!),
+                    onChanged: (v) { setState(() => _syncMode = v!); _pushConfigIfActive(); },
                   ),
               ],
             ),
@@ -431,6 +431,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
 
     if (result != null) {
       setState(() => _conflictStrategy = result);
+      _pushConfigIfActive();
     }
   }
 
@@ -458,6 +459,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     );
     if (result != null) {
       setState(() => _maxConcurrent = result);
+      _pushConfigIfActive();
     }
   }
 
@@ -492,7 +494,25 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     );
     if (result != null) {
       setState(() => _bandwidthLimitKbps = result);
+      _pushConfigIfActive();
     }
+  }
+
+  /// 配置变更后，如果引擎在运行中，实时推送到 Rust
+  void _pushConfigIfActive() {
+    final sync = context.read<SyncProvider>();
+    if (!sync.isActive && !sync.isPaused) return;
+
+    final config = sync.persistedConfig;
+    if (config == null) return;
+
+    final updated = config.copyWith(
+      syncMode: _syncMode,
+      conflictStrategy: _conflictStrategy,
+      maxConcurrentTransfers: _maxConcurrent,
+      bandwidthLimitKbps: _bandwidthLimitKbps,
+    );
+    sync.updateConfig(updated);
   }
 
   Future<void> _startSync(AuthProvider auth, SyncProvider sync) async {

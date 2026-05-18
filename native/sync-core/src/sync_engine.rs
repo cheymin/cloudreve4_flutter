@@ -2,11 +2,14 @@ use crate::api_client::ApiClient;
 use crate::conflict_resolver::ConflictResolver;
 use crate::errors::{Result, SyncError};
 use crate::event_handler::EventHandler;
+use crate::event_sink::EventSink;
+use crate::file_lock::FileLockRegistry;
 use crate::fs_scanner::FsScanner;
 use crate::models::*;
 use crate::sync_db::SyncDb;
-use crate::transfer::TransferManager;
-use std::collections::{HashMap, HashSet};
+use crate::worker::WorkerPool;
+use dashmap::DashMap;
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
@@ -17,13 +20,14 @@ pub struct SyncEngine {
     state: RwLock<SyncState>,
     db: Arc<SyncDb>,
     api: Arc<ApiClient>,
-    transfer: Arc<TransferManager>,
-    conflict: ConflictResolver,
-    config: SyncConfig,
+    config: RwLock<SyncConfig>,
+    conflict: RwLock<ConflictResolver>,
     sync_root_id: Option<String>,
     shutdown_token: CancellationToken,
-    /// 已确认存在的远程目录 URI 缓存，避免重复创建
-    ensured_dirs: RwLock<HashSet<String>>,
+    worker_pool: WorkerPool,
+    file_locks: Arc<FileLockRegistry>,
+    ensured_dirs: Arc<DashMap<String, ()>>,
+    event_sink: Arc<EventSink>,
 }
 
 impl SyncEngine {
@@ -33,13 +37,6 @@ impl SyncEngine {
         let db = Arc::new(tokio::task::spawn_blocking(move || SyncDb::open(&db_path_clone)).await??);
 
         let api = Arc::new(ApiClient::new(&config.base_url, &config.access_token, &config.refresh_token));
-
-        let transfer_config = TransferConfig {
-            max_concurrent: config.max_concurrent_transfers,
-            bandwidth_limit: config.bandwidth_limit,
-            ..Default::default()
-        };
-        let transfer = Arc::new(TransferManager::new(db.clone(), api.clone(), transfer_config));
 
         let conflict = ConflictResolver::new(config.conflict_strategy.clone());
 
@@ -51,17 +48,46 @@ impl SyncEngine {
             }
         };
 
+        let shutdown_token = CancellationToken::new();
+        let file_locks = Arc::new(FileLockRegistry::new());
+        let ensured_dirs = Arc::new(DashMap::new());
+        let event_sink = Arc::new(EventSink::new());
+
+        let worker_pool = WorkerPool::new(
+            db.clone(),
+            api.clone(),
+            file_locks.clone(),
+            ensured_dirs.clone(),
+            event_sink.clone(),
+            shutdown_token.clone(),
+        );
+
         Ok(Self {
             state: RwLock::new(SyncState::Idle),
             db,
             api,
-            transfer,
-            conflict,
-            config,
+            config: RwLock::new(config),
+            conflict: RwLock::new(conflict),
             sync_root_id,
-            shutdown_token: CancellationToken::new(),
-            ensured_dirs: RwLock::new(HashSet::new()),
+            shutdown_token,
+            worker_pool,
+            file_locks,
+            ensured_dirs,
+            event_sink,
         })
+    }
+
+    /// 从 RwLock<SyncConfig> 快照 WorkerConfig
+    async fn snapshot_worker_config(&self) -> WorkerConfig {
+        let config = self.config.read().await;
+        WorkerConfig {
+            local_root: config.local_root.clone(),
+            remote_root: config.remote_root.clone(),
+            max_concurrent_transfers: config.max_concurrent_transfers,
+            bandwidth_limit: config.bandwidth_limit,
+            conflict_strategy: config.conflict_strategy.clone(),
+            sync_root_id: self.sync_root_id.clone().unwrap_or_default(),
+        }
     }
 
     /// 初始全量同步
@@ -69,26 +95,25 @@ impl SyncEngine {
         let start = Instant::now();
         *self.state.write().await = SyncState::Initializing;
 
+        let (local_root, remote_root) = {
+            let config = self.config.read().await;
+            (config.local_root.clone(), config.remote_root.clone())
+        };
+
         // 1. 扫描本地文件系统
         let scanner = FsScanner::new();
-        tracing::info!("开始扫描本地文件系统: {}", self.config.local_root.display());
-        let local_files = scanner.scan(&self.config.local_root, 50, false).await?;
+        tracing::info!("开始扫描本地文件系统: {}", local_root.display());
+        let local_files = scanner.scan(&local_root, 50, false).await?;
         tracing::info!("本地扫描完成: {} 个条目", local_files.len());
-        for f in &local_files {
-            tracing::debug!("  本地: {} ({}bytes, dir={})", f.relative_path.display(), f.size, f.is_dir);
-        }
 
         // 2. 扫描远程文件树
-        tracing::info!("开始扫描远程文件树: {}", self.config.remote_root);
-        let remote_files = self.api.list_all_files(&self.config.remote_root).await?;
+        tracing::info!("开始扫描远程文件树: {}", remote_root);
+        let remote_files = self.api.list_all_files(&remote_root).await?;
         tracing::info!("远程扫描完成: {} 个条目", remote_files.len());
-        for f in &remote_files {
-            tracing::debug!("  远程: {} uri={} ({}bytes, dir={})", f.name, f.uri, f.size, f.is_dir);
-        }
 
         // 3. 计算三路差异
         let db_mappings = self.load_all_mappings().await?;
-        let plan = self.compute_diff(&local_files, &remote_files, &db_mappings);
+        let plan = crate::diff::compute_diff(&local_files, &remote_files, &db_mappings, &remote_root);
         tracing::info!(
             "差异计算完成: 上传={}, 下载={}, 删本地={}, 删远程={}, 冲突={}",
             plan.uploads.len(),
@@ -98,7 +123,7 @@ impl SyncEngine {
             plan.conflicts.len(),
         );
 
-        // 4. 执行同步计划
+        // 4. 更新状态
         *self.state.write().await = SyncState::InitialSync {
             progress: InitialSyncProgress {
                 scanned_local: local_files.len() as u64,
@@ -108,7 +133,13 @@ impl SyncEngine {
             },
         };
 
-        let summary = self.execute_sync_plan(&plan).await?;
+        // 5. 提交到 WorkerPool
+        let worker_config = self.snapshot_worker_config().await;
+        let conflict_resolver = self.conflict.read().await.clone();
+
+        let summary = self.worker_pool.submit(
+            plan, worker_config, WorkerTrigger::InitialSync, conflict_resolver,
+        ).await?;
 
         *self.state.write().await = SyncState::Continuous;
         tracing::info!("初始同步完成, 耗时 {}ms", start.elapsed().as_millis());
@@ -119,671 +150,6 @@ impl SyncEngine {
         })
     }
 
-    /// 从数据库加载当前所有 file_mapping
-    async fn load_all_mappings(&self) -> Result<HashMap<String, FileMapping>> {
-        let root_id = match &self.sync_root_id {
-            Some(id) => id.clone(),
-            None => return Ok(HashMap::new()),
-        };
-
-        let pool = self.db.read_pool();
-        let result = tokio::task::spawn_blocking(move || -> Result<HashMap<String, FileMapping>> {
-            let conn = pool.get()?;
-            let mut stmt = conn.prepare(
-                "SELECT id, sync_root_id, local_path, remote_uri, remote_file_id,
-                        local_hash, remote_hash, local_mtime, remote_mtime,
-                        local_size, remote_size, sync_status, is_placeholder
-                 FROM file_mapping WHERE sync_root_id = ?1"
-            )?;
-
-            let mappings: HashMap<String, FileMapping> = stmt.query_map(
-                rusqlite::params![root_id],
-                |row| {
-                    let local_path: String = row.get(2)?;
-                    Ok((
-                        crate::utils::normalize_path(&local_path),
-                        FileMapping {
-                            id: row.get(0)?,
-                            sync_root_id: row.get(1)?,
-                            local_path: std::path::PathBuf::from(local_path),
-                            remote_uri: row.get(3)?,
-                            remote_file_id: row.get(4)?,
-                            local_hash: row.get(5)?,
-                            remote_hash: row.get(6)?,
-                            local_mtime: row.get(7)?,
-                            remote_mtime: row.get(8)?,
-                            local_size: row.get(9)?,
-                            remote_size: row.get(10)?,
-                            sync_status: parse_sync_status_from_str(&row.get::<_, String>(11)?),
-                            is_placeholder: row.get::<_, i32>(12)? != 0,
-                        },
-                    ))
-                },
-            )?.filter_map(|r| r.ok()).collect();
-
-            Ok(mappings)
-        }).await??;
-
-        Ok(result)
-    }
-
-    /// 三路差异计算: 本地 vs 远程 vs 数据库
-    fn compute_diff(
-        &self,
-        local_files: &[LocalFileEntry],
-        remote_files: &[RemoteFileEntry],
-        db_mappings: &HashMap<String, FileMapping>,
-    ) -> SyncPlan {
-        let mut plan = SyncPlan::default();
-
-        // 构建索引: relative_path → entry（统一正斜杠）
-        let local_map: HashMap<String, &LocalFileEntry> = local_files
-            .iter()
-            .map(|e| (crate::utils::normalize_path(&e.relative_path.to_string_lossy()), e))
-            .collect();
-
-        // 构建 remote_path: 用 remote.path 去掉前缀作为相对路径
-        let remote_root = &self.config.remote_root;
-        let remote_map: HashMap<String, &RemoteFileEntry> = remote_files
-            .iter()
-            .filter_map(|e| {
-                let rel = remote_relative_path(remote_root, &e.path, &e.name, e.is_dir);
-                Some((rel, e))
-            })
-            .collect();
-
-        // 收集所有路径
-        let mut all_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for k in local_map.keys() {
-            all_paths.insert(k.clone());
-        }
-        for k in remote_map.keys() {
-            all_paths.insert(k.clone());
-        }
-        for k in db_mappings.keys() {
-            all_paths.insert(k.clone());
-        }
-
-        for path in &all_paths {
-            let local = local_map.get(path.as_str()).copied();
-            let remote = remote_map.get(path.as_str()).copied();
-            let db = db_mappings.get(path.as_str());
-
-            match (local, remote, db) {
-                // 本地有，远程无
-                (Some(l), None, _) => {
-                    if let Some(db_m) = db {
-                        if db_m.sync_status == SyncFileStatus::Synced {
-                            // 数据库有记录且已同步 → 远程已删除 → 初始同步中保留本地
-                            plan.uploads.push(SyncAction {
-                                relative_path: path.clone(),
-                                local_entry: Some((*l).clone()),
-                                remote_entry: None,
-                                db_mapping: Some(db_m.clone()),
-                            });
-                        }
-                    } else {
-                        // 数据库无记录，新文件 → 上传
-                        plan.uploads.push(SyncAction {
-                            relative_path: path.clone(),
-                            local_entry: Some((*l).clone()),
-                            remote_entry: None,
-                            db_mapping: None,
-                        });
-                    }
-                }
-
-                // 远程有，本地无 → 一律下载，不删远程
-                // 初始扫描时无法区分"用户主动删除"和"文件意外丢失/程序异常退出"
-                // 远程始终为权威源，删除远程只应在运行期间由 LocalFileEvent::Deleted 触发
-                (None, Some(r), _) => {
-                    if r.is_dir {
-                        plan.mkdirs_local.push(path.clone());
-                    } else {
-                        plan.downloads.push(SyncAction {
-                            relative_path: path.clone(),
-                            local_entry: None,
-                            remote_entry: Some((*r).clone()),
-                            db_mapping: db.cloned(),
-                        });
-                    }
-                }
-
-                // 两边都有
-                (Some(l), Some(r), db_m) => {
-                    if l.is_dir && r.is_dir {
-                        continue;
-                    }
-
-                    // 判断内容是否一致
-                    let content_match = match (&l.quick_hash, &r.hash) {
-                        // 双方都有 hash，直接比较
-                        (lh, Some(rh)) if !lh.is_empty() && !rh.is_empty() => lh == rh,
-                        // 远程无 hash，用 size 近似判断（mtime 因时区/精度差异不可靠）
-                        _ => l.size == r.size,
-                    };
-
-                    if content_match {
-                        // 内容一致，标记已同步
-                    } else {
-                        let conflict_type = if l.is_dir != r.is_dir {
-                            ConflictType::TypeMismatch
-                        } else {
-                            ConflictType::BothModified
-                        };
-
-                        plan.conflicts.push(SyncConflict {
-                            relative_path: path.clone(),
-                            conflict_type,
-                            local_entry: Some((*l).clone()),
-                            remote_entry: Some((*r).clone()),
-                            db_mapping: db_m.cloned(),
-                        });
-                    }
-                }
-
-                // 两边都没有但数据库有记录 → 清理
-                (None, None, Some(_)) => {}
-
-                _ => {}
-            }
-        }
-
-        // 远程目录结构: 需要先在远程创建本地独有的目录
-        for (path, local) in &local_map {
-            if local.is_dir && !remote_map.contains_key(path.as_str()) {
-                plan.mkdirs_remote.push(path.clone());
-            }
-        }
-
-        plan
-    }
-
-    /// 执行同步计划
-    async fn execute_sync_plan(&self, plan: &SyncPlan) -> Result<SyncSummary> {
-        let mut summary = SyncSummary::default();
-        let root_id = self.sync_root_id.clone().unwrap_or_default();
-
-        // 辅助：更新进度
-        let update_progress = |uploaded: u32, downloaded: u32| {
-            if let Ok(mut s) = self.state.try_write() {
-                if let SyncState::InitialSync { ref mut progress } = *s {
-                    progress.uploaded = uploaded as u64;
-                    progress.downloaded = downloaded as u64;
-                }
-            }
-        };
-
-        // 1. 创建远程目录结构
-        for dir_path in &plan.mkdirs_remote {
-            match self.api.create_directory(&self.config.remote_root, dir_path).await {
-                Ok(_) => tracing::debug!("创建远程目录: {}", dir_path),
-                Err(e) => tracing::warn!("创建远程目录失败 {}: {}", dir_path, e),
-            }
-        }
-
-        // 2. 创建本地目录结构
-        for dir_path in &plan.mkdirs_local {
-            let local_path = self.config.local_root.join(dir_path);
-            if let Err(e) = tokio::fs::create_dir_all(&local_path).await {
-                tracing::warn!("创建本地目录失败 {}: {}", dir_path, e);
-            }
-        }
-
-        // 3. 处理冲突
-        for conflict in &plan.conflicts {
-            let local_mtime = conflict.local_entry.as_ref().map(|l| l.mtime_ms).unwrap_or(0);
-            let remote_mtime = conflict.remote_entry.as_ref().map(|r| r.mtime_ms).unwrap_or(0);
-            let local_size = conflict.local_entry.as_ref().map(|l| l.size).unwrap_or(0);
-            let remote_size = conflict.remote_entry.as_ref().map(|r| r.size).unwrap_or(0);
-            let local_name = conflict.local_entry.as_ref()
-                .map(|l| l.relative_path.file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_default())
-                .unwrap_or_default();
-
-            let resolution = self.conflict.resolve(
-                conflict.conflict_type.clone(),
-                local_mtime,
-                remote_mtime,
-                local_size,
-                remote_size,
-                &local_name,
-            );
-
-            match resolution {
-                ConflictResolution::UploadLocal => {
-                    if let Some(ref local) = conflict.local_entry {
-                        let action = SyncAction {
-                            relative_path: conflict.relative_path.clone(),
-                            local_entry: Some(local.clone()),
-                            remote_entry: conflict.remote_entry.clone(),
-                            db_mapping: conflict.db_mapping.clone(),
-                        };
-                        self.execute_upload(&root_id, &action).await?;
-                        summary.uploaded += 1;
-                    }
-                }
-                ConflictResolution::DownloadRemote => {
-                    if let Some(ref remote) = conflict.remote_entry {
-                        let action = SyncAction {
-                            relative_path: conflict.relative_path.clone(),
-                            local_entry: conflict.local_entry.clone(),
-                            remote_entry: Some(remote.clone()),
-                            db_mapping: conflict.db_mapping.clone(),
-                        };
-                        self.execute_download(&root_id, &action).await?;
-                        summary.downloaded += 1;
-                    }
-                }
-                ConflictResolution::RenameLocal { ref new_name } => {
-                    if let Some(ref local) = conflict.local_entry {
-                        let old_path = self.config.local_root.join(&local.relative_path);
-                        // 正确拼接新路径：用 PathBuf 的 push 而非 format 避免 "/" 开头被当绝对路径
-                        let mut new_rel_path = local.relative_path.clone();
-                        new_rel_path.pop(); // 移除旧文件名
-                        new_rel_path.push(new_name);
-                        let new_rel = crate::utils::normalize_path(&new_rel_path.to_string_lossy());
-                        let new_path = self.config.local_root.join(&new_rel_path);
-                        let mut rename_retries = 0u32;
-                        let renamed = loop {
-                            match tokio::fs::rename(&old_path, &new_path).await {
-                                Ok(_) => break true,
-                                Err(e) if e.raw_os_error() == Some(5) && rename_retries < 10 => {
-                                    rename_retries += 1;
-                                    let delay = rename_retries as u64 * 1000;
-                                    tracing::warn!("重命名文件被占用，{}ms后重试重命名 ({}): old: {} -> new: {}", delay, rename_retries, old_path.display(), new_path.display());
-                                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
-                                }
-                                Err(e) => {
-                                    tracing::warn!("重命名冲突文件失败: {}", e);
-                                    break false;
-                                }
-                            }
-                        };
-                        // 重命名本地后，下载远程版本到原位置，这样本地有两份
-                        if renamed {
-                            tracing::info!("冲突文件已重命名保留在本地: {}", new_rel);
-                            if let Some(ref remote) = conflict.remote_entry {
-                                let action = SyncAction {
-                                    relative_path: conflict.relative_path.clone(),
-                                    local_entry: None,
-                                    remote_entry: Some(remote.clone()),
-                                    db_mapping: None,
-                                };
-                                if let Err(e) = self.execute_download(&root_id, &action).await {
-                                    tracing::warn!("下载远程冲突版本失败: {}", e);
-                                } else {
-                                    summary.downloaded += 1;
-                                }
-                            }
-                        }
-                    }
-                }
-                ConflictResolution::DeleteLocal => {
-                    if let Some(ref local) = conflict.local_entry {
-                        let local_path = self.config.local_root.join(&local.relative_path);
-                        let _ = tokio::fs::remove_file(&local_path).await;
-                        summary.deleted_local += 1;
-                    }
-                }
-                ConflictResolution::DeleteRemote => {
-                    if let Some(ref remote) = conflict.remote_entry {
-                        let _ = self.api.delete_files(&[&remote.uri]).await;
-                        summary.deleted_remote += 1;
-                    }
-                }
-                ConflictResolution::MarkManual => {
-                    summary.conflicts += 1;
-                    tracing::warn!("手动解决冲突: {}", conflict.relative_path);
-                }
-            }
-        }
-
-        // 4. 上传本地独有文件
-        for action in &plan.uploads {
-            match self.execute_upload(&root_id, action).await {
-                Ok(_) => {
-                    summary.uploaded += 1;
-                    update_progress(summary.uploaded, summary.downloaded);
-                }
-                Err(e) => {
-                    tracing::error!("上传失败 {}: {}", action.relative_path, e);
-                    summary.conflicts += 1;
-                }
-            }
-        }
-
-        // 5. 下载远程独有文件
-        for action in &plan.downloads {
-            match self.execute_download(&root_id, action).await {
-                Ok(_) => {
-                    summary.downloaded += 1;
-                    update_progress(summary.uploaded, summary.downloaded);
-                }
-                Err(e) => {
-                    tracing::error!("下载失败 {}: {}", action.relative_path, e);
-                    summary.conflicts += 1;
-                }
-            }
-        }
-
-        // 6. 删除本地文件
-        for action in &plan.delete_local {
-            if let Some(ref local) = action.local_entry {
-                let local_path = self.config.local_root.join(&local.relative_path);
-                match tokio::fs::remove_file(&local_path).await {
-                    Ok(_) => {
-                        summary.deleted_local += 1;
-                        let _ = self.db.delete_file_mapping(&root_id, &action.relative_path).await;
-                    }
-                    Err(e) => tracing::warn!("删除本地文件失败 {}: {}", action.relative_path, e),
-                }
-            }
-        }
-
-        // 7. 删除远程文件
-        let remote_uris: Vec<&str> = plan.delete_remote.iter()
-            .filter_map(|a| a.remote_entry.as_ref().map(|r| r.uri.as_str()))
-            .collect();
-        if !remote_uris.is_empty() {
-            match self.api.delete_files(&remote_uris).await {
-                Ok(_) => summary.deleted_remote += remote_uris.len() as u32,
-                Err(e) => tracing::error!("批量删除远程文件失败: {}", e),
-            }
-            for action in &plan.delete_remote {
-                let _ = self.db.delete_file_mapping(&root_id, &action.relative_path).await;
-            }
-        }
-
-        Ok(summary)
-    }
-
-    /// 上传单个文件（含重试）
-    async fn execute_upload(&self, root_id: &str, action: &SyncAction) -> Result<()> {
-        let local = action.local_entry.as_ref().ok_or_else(|| {
-            SyncError::Internal("上传操作缺少本地文件信息".into())
-        })?;
-
-        tracing::info!("开始上传: {} -> {}/{}", local.relative_path.display(), self.config.remote_root, action.relative_path);
-
-        if local.is_dir {
-            // 在远程递归创建目录链
-            let remote_uri = format!("{}/{}", self.config.remote_root, action.relative_path);
-            self.ensure_remote_dirs(&action.relative_path).await?;
-            self.db.upsert_file_mapping(&FileMapping {
-                id: 0,
-                sync_root_id: root_id.to_string(),
-                local_path: local.relative_path.clone(),
-                remote_uri,
-                remote_file_id: None,
-                local_hash: Some(local.quick_hash.clone()),
-                remote_hash: None,
-                local_mtime: Some(local.mtime_ms),
-                remote_mtime: None,
-                local_size: Some(local.size),
-                remote_size: None,
-                sync_status: SyncFileStatus::Synced,
-                is_placeholder: false,
-            }).await?;
-            return Ok(());
-        }
-
-        let local_path = self.config.local_root.join(&local.relative_path);
-        let file_uri = format!("{}/{}", self.config.remote_root, action.relative_path);
-        let max_retries = 3u32;
-
-        // 确保远程父目录链存在
-        if let Some(parent) = std::path::Path::new(&action.relative_path).parent() {
-            let parent_str = parent.to_string_lossy().to_string();
-            if !parent_str.is_empty() {
-                if let Err(e) = self.ensure_remote_dirs(&parent_str).await {
-                    tracing::warn!("确保远程父目录失败 {}: {}", parent_str, e);
-                }
-            }
-        }
-
-        // 判断是否需要覆盖（数据库有记录说明远程已存在）
-        let overwrite = action.db_mapping.is_some();
-
-        // 读取文件（加重试，应对大文件复制过程中被占用）
-        let data = {
-            let mut read_retries = 0u32;
-            loop {
-                match tokio::fs::read(&local_path).await {
-                    Ok(d) => break d,
-                    Err(e) if e.raw_os_error() == Some(32) && read_retries < 5 => {
-                        read_retries += 1;
-                        let delay = read_retries * 1000;
-                        tracing::warn!("复制过程中文件被占用，{}ms后重试 ({}): {}", delay, read_retries, local_path.display());
-                        tokio::time::sleep(std::time::Duration::from_millis(delay as u64)).await;
-                    }
-                    Err(e) => return Err(e.into()),
-                }
-            }
-        };
-
-        // 带重试的上传
-        let last_modified = if local.mtime_ms > 0 { Some(local.mtime_ms) } else { None };
-        let mime_type_str = local.mime_type.as_deref();
-        let session = self.retry_upload_session(&file_uri, local.size, max_retries, overwrite, last_modified, mime_type_str, None).await?;
-        let chunk_size = session.chunk_size as usize;
-        let mut index = 0u32;
-
-        for chunk in data.chunks(chunk_size) {
-            let mut chunk_retries = 0u32;
-            loop {
-                match self.api.upload_chunk(&session.session_id, index, chunk).await {
-                    Ok(_) => break,
-                    Err(SyncError::Auth(_)) => return Err(SyncError::Auth("Token 过期".into())),
-                    Err(e) if chunk_retries < max_retries => {
-                        chunk_retries += 1;
-                        let delay = crate::utils::retry_delay_ms(chunk_retries, 1000, 30000);
-                        tracing::warn!("分片上传失败，{}ms后重试 ({}): {}", delay, chunk_retries, e);
-                        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
-                    }
-                    Err(e) => return Err(e),
-                }
-            }
-            index += 1;
-        }
-
-        // 上传完成后获取远程文件信息
-        let remote_uri = file_uri.clone();
-        let (remote_file_id, remote_hash) = match self.api.get_file_info(&remote_uri).await {
-            Ok(info) => (info.file_id.clone(), info.hash.clone()),
-            Err(e) => {
-                tracing::warn!("上传后获取文件信息失败: {}", e);
-                (None, None)
-            }
-        };
-
-        self.db.upsert_file_mapping(&FileMapping {
-            id: 0,
-            sync_root_id: root_id.to_string(),
-            local_path: local.relative_path.clone(),
-            remote_uri,
-            remote_file_id,
-            local_hash: Some(local.quick_hash.clone()),
-            remote_hash: remote_hash.or(Some(local.quick_hash.clone())),
-            local_mtime: Some(local.mtime_ms),
-            remote_mtime: Some(local.mtime_ms),
-            local_size: Some(local.size),
-            remote_size: Some(local.size),
-            sync_status: SyncFileStatus::Synced,
-            is_placeholder: false,
-        }).await?;
-
-        tracing::debug!("上传完成: {}", action.relative_path);
-        Ok(())
-    }
-
-    /// 下载单个文件（含重试）
-    async fn execute_download(&self, root_id: &str, action: &SyncAction) -> Result<()> {
-        let remote = action.remote_entry.as_ref().ok_or_else(|| {
-            SyncError::Internal("下载操作缺少远程文件信息".into())
-        })?;
-
-        if remote.is_dir {
-            let local_path = self.config.local_root.join(&action.relative_path);
-            tokio::fs::create_dir_all(&local_path).await?;
-            tracing::debug!("创建本地目录: {}", action.relative_path);
-            return Ok(());
-        }
-
-        let local_path = self.config.local_root.join(&action.relative_path);
-        tracing::info!("开始下载: {} -> {}", remote.uri, local_path.display());
-
-        // 确保父目录存在
-        if let Some(parent) = local_path.parent() {
-            if !parent.exists() {
-                tokio::fs::create_dir_all(parent).await?;
-            }
-        }
-
-        let max_retries = 3u32;
-        let mut attempt = 0u32;
-
-        loop {
-            attempt += 1;
-
-            // 获取下载 URL
-            let urls = match self.api.get_download_url(&[&remote.uri]).await {
-                Ok(urls) => urls,
-                Err(SyncError::Auth(_)) => return Err(SyncError::Auth("Token 过期".into())),
-                Err(e) if attempt <= max_retries => {
-                    let delay = crate::utils::retry_delay_ms(attempt, 1000, 30000);
-                    tracing::warn!("获取下载链接失败，{}ms后重试 ({}): {}", delay, attempt, e);
-                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
-                    continue;
-                }
-                Err(e) => return Err(e),
-            };
-
-            let download_url = match urls.first() {
-                Some(u) => u.clone(),
-                None => {
-                    tracing::error!("未获取到下载链接, uri={}", remote.uri);
-                    return Err(SyncError::Network("未获取到下载链接".into()));
-                }
-            };
-            tracing::debug!("获取到下载链接: {}", download_url);
-
-            // 流式下载
-            let resp = match self.api.stream_download(&download_url, 0).await {
-                Ok(r) => r,
-                Err(SyncError::Auth(_)) => return Err(SyncError::Auth("Token 过期".into())),
-                Err(e) if attempt <= max_retries => {
-                    let delay = crate::utils::retry_delay_ms(attempt, 1000, 30000);
-                    tracing::warn!("下载连接失败，{}ms后重试 ({}): {}", delay, attempt, e);
-                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
-                    continue;
-                }
-                Err(e) => return Err(e),
-            };
-
-            let tmp_path = local_path.with_extension(".sync_tmp");
-
-            match self.stream_to_file(resp, &tmp_path).await {
-                Ok(_) => {
-                    tracing::debug!("下载写入完成: {} ({}bytes)", tmp_path.display(), remote.size);
-                    // 原子重命名
-                    tokio::fs::rename(&tmp_path, &local_path).await?;
-
-                    // 设置修改时间
-                    if remote.mtime_ms > 0 {
-                        let mtime = std::time::UNIX_EPOCH + std::time::Duration::from_millis(remote.mtime_ms as u64);
-                        let _ = filetime::set_file_mtime(&local_path, filetime::FileTime::from_system_time(mtime.into()));
-                    }
-
-                    // 更新数据库映射
-                    let local_hash = crate::utils::quick_hash(&local_path, remote.size).await.unwrap_or_default();
-                    self.db.upsert_file_mapping(&FileMapping {
-                        id: 0,
-                        sync_root_id: root_id.to_string(),
-                        local_path: std::path::PathBuf::from(&action.relative_path),
-                        remote_uri: remote.uri.clone(),
-                        remote_file_id: remote.file_id.clone(),
-                        local_hash: Some(local_hash.clone()),
-                        remote_hash: remote.hash.clone().or(Some(local_hash)),
-                        local_mtime: Some(remote.mtime_ms),
-                        remote_mtime: Some(remote.mtime_ms),
-                        local_size: Some(remote.size),
-                        remote_size: Some(remote.size),
-                        sync_status: SyncFileStatus::Synced,
-                        is_placeholder: false,
-                    }).await?;
-
-                    tracing::debug!("下载完成: {}", action.relative_path);
-                    return Ok(());
-                }
-                Err(e) if attempt <= max_retries => {
-                    let delay = crate::utils::retry_delay_ms(attempt, 1000, 30000);
-                    tracing::warn!("下载写入失败，{}ms后重试 ({}): {}", delay, attempt, e);
-                    let _ = tokio::fs::remove_file(&tmp_path).await;
-                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
-                    continue;
-                }
-                Err(e) => {
-                    let _ = tokio::fs::remove_file(&tmp_path).await;
-                    return Err(e);
-                }
-            }
-        }
-    }
-
-    /// 流式写入文件
-    async fn stream_to_file(
-        &self,
-        resp: reqwest::Response,
-        tmp_path: &std::path::Path,
-    ) -> Result<()> {
-        let mut file = tokio::fs::File::create(tmp_path).await?;
-        use tokio::io::AsyncWriteExt;
-        let mut stream = resp.bytes_stream();
-        use futures_util::StreamExt;
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|e| SyncError::Network(e.to_string()))?;
-            file.write_all(&chunk).await?;
-        }
-        file.flush().await?;
-        Ok(())
-    }
-
-    /// 带重试的创建上传会话
-    async fn retry_upload_session(
-        &self,
-        file_uri: &str,
-        file_size: u64,
-        max_retries: u32,
-        overwrite: bool,
-        last_modified: Option<i64>,
-        mime_type: Option<&str>,
-        policy_id: Option<&str>,
-    ) -> Result<UploadSession> {
-        let mut attempt = 0u32;
-        let mut tried_overwrite = overwrite;
-        loop {
-            attempt += 1;
-            match self.api.create_upload_session(file_uri, file_size, tried_overwrite, last_modified, mime_type, policy_id).await {
-                Ok(session) => return Ok(session),
-                Err(SyncError::Auth(_)) => return Err(SyncError::Auth("Token 过期".into())),
-                // "Object existed" 错误：自动切换为覆盖模式重试
-                Err(SyncError::ObjectExisted) if !tried_overwrite => {
-                    tracing::info!("远程文件已存在，切换为覆盖上传");
-                    tried_overwrite = true;
-                    continue;
-                }
-                Err(e) if attempt <= max_retries => {
-                    let delay = crate::utils::retry_delay_ms(attempt, 1000, 30000);
-                    tracing::warn!("创建上传会话失败，{}ms后重试 ({}): {}", delay, attempt, e);
-                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
-                }
-                Err(e) => return Err(e),
-            }
-        }
-    }
-
     /// 持续同步：双事件源驱动 (SSE + 本地文件监听)
     pub async fn run_continuous(&self) -> Result<()> {
         let event_handler = EventHandler::new(
@@ -791,13 +157,18 @@ impl SyncEngine {
             uuid::Uuid::new_v4().to_string(),
         );
 
+        let (local_root, remote_root) = {
+            let config = self.config.read().await;
+            (config.local_root.clone(), config.remote_root.clone())
+        };
+
         // 订阅远程 SSE 事件
-        let mut remote_rx = event_handler.subscribe_sse(&self.config.remote_root).await?;
+        let mut remote_rx = event_handler.subscribe_sse(&remote_root).await?;
 
         // 启动本地文件监听 (notify)
-        let local_root = self.config.local_root.clone();
         let (local_tx, mut local_rx) = tokio::sync::mpsc::channel::<LocalFileEvent>(256);
         let shutdown_clone = self.shutdown_token.clone();
+        let watch_root = local_root.clone();
 
         std::thread::spawn(move || {
             use notify::{RecommendedWatcher, RecursiveMode, Event, EventKind};
@@ -816,14 +187,13 @@ impl SyncEngine {
                 }
             };
 
-            if let Err(e) = watcher.watch(&local_root, RecursiveMode::Recursive) {
+            if let Err(e) = watcher.watch(&watch_root, RecursiveMode::Recursive) {
                 tracing::error!("文件监听启动失败: {}", e);
                 return;
             }
 
-            tracing::info!("本地文件监听已启动: {}", local_root.display());
+            tracing::info!("本地文件监听已启动: {}", watch_root.display());
 
-            // 事件去重缓冲
             let mut created_buf: Vec<std::path::PathBuf> = Vec::new();
             let mut modified_buf: Vec<std::path::PathBuf> = Vec::new();
             let mut deleted_buf: Vec<std::path::PathBuf> = Vec::new();
@@ -835,7 +205,6 @@ impl SyncEngine {
 
                 match notify_rx.recv_timeout(std::time::Duration::from_millis(500)) {
                     Ok(Ok(event)) => {
-                        // 忽略 .sync_tmp 临时文件
                         let paths: Vec<_> = event.paths.iter()
                             .filter(|p| {
                                 !p.extension().map(|e| e == "sync_tmp").unwrap_or(false)
@@ -861,7 +230,6 @@ impl SyncEngine {
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                 }
 
-                // 批量发送缓冲的事件
                 if !created_buf.is_empty() {
                     let _ = local_tx.blocking_send(LocalFileEvent::Created(std::mem::take(&mut created_buf)));
                 }
@@ -873,7 +241,7 @@ impl SyncEngine {
                 }
             }
 
-            let _ = watcher.unwatch(&local_root);
+            let _ = watcher.unwatch(&watch_root);
             tracing::info!("本地文件监听已停止");
         });
 
@@ -891,137 +259,211 @@ impl SyncEngine {
                     break;
                 }
 
-                // 本地文件变化
+                // 本地文件变化 → 空闲窗口批量收集 → 按事件类型分 Worker
                 Some(event) = local_rx.recv() => {
-                    for path in event.paths() {
-                        if !debounce.should_process(path) {
-                            continue;
+                    // 空闲窗口收集：3秒内无新事件则视为批次结束
+                    // 大文件复制中事件持续到达，窗口自然延长
+                    let mut all_events = vec![event];
+                    let idle_timeout = std::time::Duration::from_secs(3);
+                    loop {
+                        match tokio::time::timeout(idle_timeout, local_rx.recv()).await {
+                            Ok(Some(e)) => all_events.push(e),
+                            _ => break,
                         }
+                    }
 
-                        // 跳过同步元数据文件和冲突副本
-                        let file_name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                        if crate::fs_scanner::SKIP_NAMES.iter().any(|s| file_name == *s)
-                            || file_name.starts_with(".sync_")
-                            || crate::utils::is_conflict_file(&file_name) {
-                            continue;
-                        }
+                    // 按事件类型分类路径，同一路径去重（取最新事件）
+                    let mut create_paths: std::collections::BTreeMap<String, std::path::PathBuf> = std::collections::BTreeMap::new();
+                    let mut delete_paths: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
 
-                        let relative = path.strip_prefix(&self.config.local_root)
-                            .unwrap_or(path)
-                            .to_string_lossy()
-                            .to_string();
-                        // Windows 路径反斜杠 → 正斜杠
-                        let relative = crate::utils::normalize_path(&relative);
-
-                        match &event {
-                            LocalFileEvent::Created(_) | LocalFileEvent::Modified(_) => {
-                                if let Ok(metadata) = tokio::fs::metadata(path).await {
-                                    let size = metadata.len();
-                                    let quick_hash = crate::utils::quick_hash(path, size).await.unwrap_or_default();
-
-                                    // 和数据库中的 hash 对比，只有真正改变才上传
-                                    let root_id = self.sync_root_id.clone().unwrap_or_default();
-                                    let db_mapping = self.db.get_file_mapping(&root_id, &relative).await.ok().flatten();
-                                    if let Some(ref mapping) = db_mapping {
-                                        if mapping.local_hash.as_deref() == Some(&quick_hash) {
-                                            tracing::debug!("跳过未变化文件: {}", relative);
-                                            continue;
-                                        }
-                                    }
-
-                                    tracing::debug!("检测到本地文件变化，准备上传: {}", relative);
-
-                                    let mtime_ms = metadata.modified()
-                                        .ok()
-                                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                                        .map(|d| d.as_millis() as i64)
-                                        .unwrap_or(0);
-                                    let mime_type = if !metadata.is_dir() {
-                                        crate::fs_scanner::guess_mime_type(path)
-                                    } else {
-                                        None
-                                    };
-
-                                    let action = SyncAction {
-                                        relative_path: relative.clone(),
-                                        local_entry: Some(LocalFileEntry {
-                                            relative_path: std::path::PathBuf::from(&relative),
-                                            size,
-                                            mtime_ms,
-                                            quick_hash,
-                                            is_dir: metadata.is_dir(),
-                                            mime_type,
-                                        }),
-                                        remote_entry: None,
-                                        db_mapping,
-                                    };
-
-                                    if let Err(e) = self.execute_upload(&root_id, &action).await {
-                                        tracing::warn!("持续同步上传失败 {}: {} (继续处理其他文件)", relative, e);
-                                    }
-                                }
+                    for event in &all_events {
+                        for path in event.paths() {
+                            if !debounce.should_process(path) {
+                                continue;
                             }
-                            LocalFileEvent::Deleted(_) => {
-                                // 冲突副本文件删除不影响云端
-                                if crate::utils::is_conflict_file(&relative) {
-                                    tracing::debug!("跳过冲突副本删除的云端同步: {}", relative);
-                                    continue;
+
+                            let file_name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                            if crate::fs_scanner::SKIP_NAMES.iter().any(|s| file_name == *s)
+                                || file_name.starts_with(".sync_")
+                                || crate::utils::is_conflict_file(&file_name) {
+                                continue;
+                            }
+
+                            let relative = path.strip_prefix(&local_root)
+                                .unwrap_or(path)
+                                .to_string_lossy()
+                                .to_string();
+                            let relative = crate::utils::normalize_path(&relative);
+
+                            match event {
+                                LocalFileEvent::Created(_) | LocalFileEvent::Modified(_) => {
+                                    // Created/Modified → 上传；如果之前被标记删除，则取消删除
+                                    delete_paths.remove(relative.as_str());
+                                    create_paths.insert(relative, path.clone());
                                 }
-                                tracing::info!("检测到本地文件删除: {}", relative);
-                                let remote_uri = format!("{}/{}", self.config.remote_root, relative);
-                                if let Err(e) = self.api.delete_files(&[&remote_uri]).await {
-                                    tracing::warn!("持续同步删除远程失败 {}: {}", relative, e);
-                                } else {
-                                    let rid = self.sync_root_id.clone().unwrap_or_default();
-                                    // 删除自身映射
-                                    let _ = self.db.delete_file_mapping(&rid, &relative).await;
-                                    // 如果是目录，还要清理子文件的映射
-                                    let deleted = self.db.delete_file_mapping_prefix(&rid, &relative).await.unwrap_or(0);
-                                    if deleted > 0 {
-                                        tracing::debug!("清理目录下 {} 条子文件映射", deleted);
+                                LocalFileEvent::Deleted(_) => {
+                                    if crate::utils::is_conflict_file(&relative) {
+                                        continue;
                                     }
+                                    // 如果之前被标记上传，则取消上传（文件已删）
+                                    create_paths.remove(relative.as_str());
+                                    delete_paths.insert(relative);
                                 }
                             }
                         }
                     }
                     debounce.cleanup();
+
+                    // === 提交上传任务 (Create/Modify) ===
+                    if !create_paths.is_empty() {
+                        let mut uploads = Vec::new();
+                        let mut dir_paths: Vec<String> = Vec::new();
+
+                        for (relative, path) in &create_paths {
+                            if let Ok(metadata) = tokio::fs::metadata(path).await {
+                                if !metadata.is_dir() && metadata.len() == 0 {
+                                    continue;
+                                }
+
+                                if metadata.is_dir() {
+                                    dir_paths.push(relative.clone());
+                                    continue;
+                                }
+
+                                let size = metadata.len();
+                                let quick_hash = crate::utils::quick_hash(path, size).await.unwrap_or_default();
+
+                                let root_id = self.sync_root_id.clone().unwrap_or_default();
+                                let db_mapping = self.db.get_file_mapping(&root_id, relative).await.ok().flatten();
+                                if let Some(ref mapping) = db_mapping {
+                                    if mapping.local_hash.as_deref() == Some(&quick_hash) {
+                                        continue;
+                                    }
+                                }
+
+                                let mtime_ms = metadata.modified()
+                                    .ok()
+                                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                                    .map(|d| d.as_millis() as i64)
+                                    .unwrap_or(0);
+                                let mime_type = crate::fs_scanner::guess_mime_type(path);
+
+                                uploads.push(SyncAction {
+                                    relative_path: relative.clone(),
+                                    local_entry: Some(LocalFileEntry {
+                                        relative_path: std::path::PathBuf::from(relative),
+                                        size,
+                                        mtime_ms,
+                                        quick_hash,
+                                        is_dir: false,
+                                        mime_type,
+                                    }),
+                                    remote_entry: None,
+                                    db_mapping,
+                                });
+                            }
+                        }
+
+                        // 找出顶层目录，过滤掉被顶层目录包含的普通文件
+                        let scan_dirs = find_top_level_dirs(&dir_paths);
+                        if !scan_dirs.is_empty() {
+                            uploads.retain(|action| {
+                                !scan_dirs.iter().any(|dir| {
+                                    action.relative_path.starts_with(dir)
+                                        && action.relative_path.as_bytes().get(dir.len()) == Some(&b'/')
+                                })
+                            });
+                        }
+
+                        if !uploads.is_empty() || !scan_dirs.is_empty() {
+                            tracing::info!(
+                                "本地事件收集完成: 上传={}, 目录扫描={:?}",
+                                uploads.len(), scan_dirs,
+                            );
+                            let plan = SyncPlan {
+                                uploads,
+                                scan_dirs,
+                                ..Default::default()
+                            };
+                            let worker_config = self.snapshot_worker_config().await;
+                            let conflict_resolver = self.conflict.read().await.clone();
+                            self.worker_pool.submit_background(
+                                plan, worker_config, WorkerTrigger::Continuous, conflict_resolver,
+                            ).await;
+                        }
+                    }
+
+                    // === 提交删除任务 (Delete) ===
+                    if !delete_paths.is_empty() {
+                        let delete_local: Vec<SyncAction> = delete_paths.into_iter().map(|relative| {
+                            tracing::info!("检测到本地文件删除: {}", relative);
+                            SyncAction {
+                                relative_path: relative,
+                                local_entry: None,
+                                remote_entry: None,
+                                db_mapping: None,
+                            }
+                        }).collect();
+
+                        tracing::info!("本地删除事件收集完成: 删除={}", delete_local.len());
+                        let plan = SyncPlan {
+                            delete_local,
+                            ..Default::default()
+                        };
+                        let worker_config = self.snapshot_worker_config().await;
+                        let conflict_resolver = self.conflict.read().await.clone();
+                        self.worker_pool.submit_background(
+                            plan, worker_config, WorkerTrigger::Continuous, conflict_resolver,
+                        ).await;
+                    }
                 }
 
-                // 远程文件变化
+                // 远程文件变化 → 构建 SyncPlan → submit_background
                 Some(event) = remote_rx.recv() => {
+                    let mut downloads = Vec::new();
+                    let mut _delete_remote_actions: Vec<SyncAction> = Vec::new();
+
                     match &event {
                         RemoteFileEvent::Created(remote) | RemoteFileEvent::Modified(remote) => {
-                            let relative = remote_relative_path(
-                                &self.config.remote_root,
+                            let relative = crate::diff::remote_relative_path(
+                                &remote_root,
                                 &remote.path,
                                 &remote.name,
                                 remote.is_dir,
                             );
                             tracing::debug!("远程下载: {}", relative);
 
-                            let action = SyncAction {
+                            downloads.push(SyncAction {
                                 relative_path: relative.clone(),
                                 local_entry: None,
                                 remote_entry: Some(remote.clone()),
                                 db_mapping: None,
-                            };
-
-                            let root_id = self.sync_root_id.clone().unwrap_or_default();
-                            if let Err(e) = self.execute_download(&root_id, &action).await {
-                                tracing::error!("持续同步下载失败 {}: {}", relative, e);
-                            }
+                            });
                         }
                         RemoteFileEvent::Deleted { uri, name } => {
-                            let relative = remote_relative_path(
-                                &self.config.remote_root,
+                            let relative = crate::diff::remote_relative_path(
+                                &remote_root,
                                 uri,
                                 name,
                                 false,
                             );
                             tracing::debug!("远程删除，删除本地: {}", relative);
-                            let local_path = self.config.local_root.join(&relative);
+                            let local_path = local_root.join(&relative);
                             let _ = tokio::fs::remove_file(&local_path).await;
+                            continue;
                         }
+                    }
+
+                    if !downloads.is_empty() {
+                        let plan = SyncPlan {
+                            downloads,
+                            ..Default::default()
+                        };
+                        let worker_config = self.snapshot_worker_config().await;
+                        let conflict_resolver = self.conflict.read().await.clone();
+                        self.worker_pool.submit_background(
+                            plan, worker_config, WorkerTrigger::Continuous, conflict_resolver,
+                        ).await;
                     }
                 }
 
@@ -1055,58 +497,6 @@ impl SyncEngine {
         self.run_initial_sync().await
     }
 
-    /// 递归确保远程目录链存在（带缓存，已确认存在的目录跳过 API 调用）
-    async fn ensure_remote_dirs(&self, relative_path: &str) -> Result<()> {
-        let parts: Vec<&str> = relative_path.split('/').filter(|p| !p.is_empty()).collect();
-        if parts.is_empty() {
-            return Ok(());
-        }
-
-        let mut current = self.config.remote_root.clone();
-        let mut dirs_to_create: Vec<(String, String)> = Vec::new(); // (parent_uri, dir_name)
-
-        for part in &parts {
-            let next_uri = format!("{}/{}", current, part);
-            // 检查缓存
-            if self.ensured_dirs.read().await.contains(&next_uri) {
-                current = next_uri;
-                continue;
-            }
-            dirs_to_create.push((current.clone(), part.to_string()));
-            current = next_uri;
-        }
-
-        if dirs_to_create.is_empty() {
-            return Ok(());
-        }
-
-        // 批量创建未缓存的目录
-        let mut current = self.config.remote_root.clone();
-        for (i, (parent_uri, dir_name)) in dirs_to_create.iter().enumerate() {
-            let uri = format!("{}/{}", parent_uri, dir_name);
-            match self.api.create_directory(parent_uri, dir_name).await {
-                Ok(_) => {
-                    tracing::debug!("创建远程目录: {}", uri);
-                    self.ensured_dirs.write().await.insert(uri.clone());
-                }
-                Err(e) => {
-                    let msg = e.to_string();
-                    if msg.contains("exist") || msg.contains("already") || msg.contains("40004") {
-                        // 目录已存在，加入缓存
-                        self.ensured_dirs.write().await.insert(uri.clone());
-                    } else {
-                        tracing::warn!("创建远程目录失败 {}: {}", uri, e);
-                    }
-                }
-            }
-            if i == dirs_to_create.len() - 1 {
-                current = uri;
-            }
-        }
-
-        Ok(())
-    }
-
     pub fn status(&self) -> SyncStatusSnapshot {
         let state = self.state.try_read().map(|g| g.clone()).unwrap_or(SyncState::Idle);
 
@@ -1131,11 +521,41 @@ impl SyncEngine {
         }
     }
 
-    pub fn config(&self) -> SyncConfig {
-        self.config.clone()
+    pub fn active_worker_count(&self) -> u32 {
+        self.worker_pool.active_worker_count() as u32
     }
 
-    pub async fn update_config(&self, _config: SyncConfig) -> Result<()> {
+    pub async fn config(&self) -> SyncConfig {
+        self.config.read().await.clone()
+    }
+
+    pub async fn update_config(&self, new_config: SyncConfig) -> Result<()> {
+        let old_access_token = {
+            let config = self.config.read().await;
+            config.access_token.clone()
+        };
+
+        // 更新冲突策略
+        *self.conflict.write().await = ConflictResolver::new(new_config.conflict_strategy.clone());
+
+        // 更新 API token（如果变化）
+        if new_config.access_token != old_access_token {
+            self.api.update_token(new_config.access_token.clone()).await;
+        }
+
+        let new_bandwidth = new_config.bandwidth_limit;
+        let new_conflict = format!("{:?}", new_config.conflict_strategy);
+        let new_mode = format!("{:?}", new_config.sync_mode);
+        let new_max_concurrent = new_config.max_concurrent_transfers;
+        *self.config.write().await = new_config;
+
+        if new_bandwidth.is_some() {
+            tracing::info!("仅对下载限速生效, 由于Cloudreve实现原因, 上传限速无法生效");
+        }
+        tracing::info!(
+            "同步配置已更新: 模式={}, 冲突策略={}, 并发={}, 带宽限制={:?}",
+            new_mode, new_conflict, new_max_concurrent, new_bandwidth
+        );
         Ok(())
     }
 
@@ -1143,14 +563,29 @@ impl SyncEngine {
         self.api.update_token(token).await;
     }
 
-    pub async fn shutdown(self) -> Result<()> {
-        self.shutdown_token.cancel();
-        Ok(())
+    pub async fn register_event_sink(&self, sink: crate::frb_generated::StreamSink<crate::api::ffi_types::SyncEventFfi>) {
+        self.event_sink.register(sink).await;
     }
 
-    pub async fn hydrate_file(&self, _local_path: &str) -> Result<()> {
-        Ok(())
+    // ===== 任务查询 =====
+
+    pub async fn get_active_tasks(&self) -> Result<Vec<SyncTask>> {
+        self.db.get_active_sync_tasks().await
     }
+
+    pub async fn get_recent_tasks(&self, limit: u32) -> Result<Vec<SyncTask>> {
+        self.db.get_recent_sync_tasks(limit).await
+    }
+
+    pub async fn get_task_detail(&self, task_id: &str) -> Result<Vec<SyncTaskItem>> {
+        self.db.get_sync_task_items(task_id).await
+    }
+
+    pub async fn query_task_items(&self, filter: &TaskItemFilter) -> Result<Vec<SyncTaskItem>> {
+        self.db.query_task_items(filter).await
+    }
+
+    // ===== 相册同步 =====
 
     pub async fn sync_album(
         &self,
@@ -1181,10 +616,8 @@ impl SyncEngine {
                 Ok(metadata) => {
                     let file_size = metadata.len();
 
-                    // 创建上传会话
                     match self.api.create_upload_session(remote_dcim_uri, file_size, false, None, None, None).await {
                         Ok(session) => {
-                            // 读取文件并分片上传
                             match tokio::fs::read(photo_path).await {
                                 Ok(data) => {
                                     let chunk_size = session.chunk_size as usize;
@@ -1253,26 +686,89 @@ impl SyncEngine {
         self.api.create_directory(base_uri, "Pictures").await?;
         Ok(())
     }
-}
 
-/// 从远程 path 字段提取相对路径
-fn remote_relative_path(remote_root: &str, path: &str, name: &str, is_dir: bool) -> String {
-    let _ = is_dir;
-    if path.starts_with(remote_root) {
-        let rel = &path[remote_root.len()..];
-        let rel = rel.trim_start_matches('/');
-        rel.to_string()
-    } else {
-        name.to_string()
+    pub async fn hydrate_file(&self, _local_path: &str) -> Result<()> {
+        Ok(())
+    }
+
+    pub async fn shutdown(self) -> Result<()> {
+        self.shutdown_token.cancel();
+        Ok(())
+    }
+
+    /// 从数据库加载当前所有 file_mapping
+    async fn load_all_mappings(&self) -> Result<HashMap<String, FileMapping>> {
+        let root_id = match &self.sync_root_id {
+            Some(id) => id.clone(),
+            None => return Ok(HashMap::new()),
+        };
+
+        let pool = self.db.read_pool();
+        let result = tokio::task::spawn_blocking(move || -> Result<HashMap<String, FileMapping>> {
+            let conn = pool.get()?;
+            let mut stmt = conn.prepare(
+                "SELECT id, sync_root_id, local_path, remote_uri, remote_file_id,
+                        local_hash, remote_hash, local_mtime, remote_mtime,
+                        local_size, remote_size, sync_status, is_placeholder
+                 FROM file_mapping WHERE sync_root_id = ?1"
+            )?;
+
+            let mappings: HashMap<String, FileMapping> = stmt.query_map(
+                rusqlite::params![root_id],
+                |row| {
+                    let local_path: String = row.get(2)?;
+                    Ok((
+                        crate::utils::normalize_path(&local_path),
+                        FileMapping {
+                            id: row.get(0)?,
+                            sync_root_id: row.get(1)?,
+                            local_path: std::path::PathBuf::from(local_path),
+                            remote_uri: row.get(3)?,
+                            remote_file_id: row.get(4)?,
+                            local_hash: row.get(5)?,
+                            remote_hash: row.get(6)?,
+                            local_mtime: row.get(7)?,
+                            remote_mtime: row.get(8)?,
+                            local_size: row.get(9)?,
+                            remote_size: row.get(10)?,
+                            sync_status: crate::diff::parse_sync_status_from_str(&row.get::<_, String>(11)?),
+                            is_placeholder: row.get::<_, i32>(12)? != 0,
+                        },
+                    ))
+                },
+            )?.filter_map(|r| r.ok()).collect();
+
+            Ok(mappings)
+        }).await??;
+
+        Ok(result)
     }
 }
 
-fn parse_sync_status_from_str(s: &str) -> SyncFileStatus {
-    match s {
-        "uploading" => SyncFileStatus::Uploading,
-        "downloading" => SyncFileStatus::Downloading,
-        "conflict" => SyncFileStatus::Conflict,
-        "placeholder" => SyncFileStatus::Placeholder,
-        _ => SyncFileStatus::Synced,
+/// 从目录路径列表中找出顶层目录（不被其他目录包含的）
+fn find_top_level_dirs(dirs: &[String]) -> Vec<String> {
+    if dirs.is_empty() {
+        return Vec::new();
     }
+
+    let mut sorted: Vec<&String> = dirs.iter().collect();
+    sorted.sort();
+
+    let mut top_level = Vec::new();
+    for dir in &sorted {
+        let dominated = top_level.iter().any(|parent: &String| {
+            dir.starts_with(parent.as_str())
+                && dir.as_bytes().get(parent.len()) == Some(&b'/')
+        });
+        if !dominated {
+            // 移除已有的子目录（当前目录更顶层）
+            top_level.retain(|existing: &String| {
+                !existing.starts_with(dir.as_str())
+                    || existing.as_bytes().get(dir.len()) != Some(&b'/')
+            });
+            top_level.push((*dir).clone());
+        }
+    }
+
+    top_level
 }

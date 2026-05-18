@@ -82,6 +82,38 @@ pub fn retry_delay_ms(attempt: u32, base_ms: u64, max_ms: u64) -> u64 {
     delay.min(max_ms)
 }
 
+/// 判断路径是否为同步临时文件
+pub fn is_temp_file(path: &Path) -> bool {
+    path.extension()
+        .map(|ext| ext == "sync_tmp" || ext == "sync_temp")
+        .unwrap_or(false)
+}
+
+/// 清理目录下残留的 .sync_tmp 文件
+pub fn cleanup_temp_files<'a>(dir: &'a Path) -> std::pin::Pin<Box<dyn std::future::Future<Output = u32> + Send + 'a>> {
+    Box::pin(async move {
+        let mut cleaned = 0u32;
+        let mut entries = match tokio::fs::read_dir(dir).await {
+            Ok(e) => e,
+            Err(_) => return 0,
+        };
+
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let path = entry.path();
+            if path.is_dir() {
+                cleaned += cleanup_temp_files(&path).await;
+            } else if is_temp_file(&path) {
+                if tokio::fs::remove_file(&path).await.is_ok() {
+                    tracing::debug!("清理临时文件: {}", path.display());
+                    cleaned += 1;
+                }
+            }
+        }
+
+        cleaned
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

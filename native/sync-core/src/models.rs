@@ -290,6 +290,8 @@ pub struct SyncPlan {
     pub conflicts: Vec<SyncConflict>,
     pub mkdirs_local: Vec<String>,
     pub mkdirs_remote: Vec<String>,
+    /// 需要递归扫描的顶层目录（持续同步场景，目录整体提交给 Worker）
+    pub scan_dirs: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -316,6 +318,184 @@ impl SyncPlan {
             + self.delete_local.len() as u64
             + self.delete_remote.len() as u64
     }
+}
+
+// ===== Worker / Task 类型 =====
+
+/// Worker 配置快照 — 创建时一次性读取，运行中不读任何锁
+#[derive(Debug, Clone)]
+pub struct WorkerConfig {
+    pub local_root: PathBuf,
+    pub remote_root: String,
+    pub max_concurrent_transfers: usize,
+    pub bandwidth_limit: Option<u64>,
+    pub conflict_strategy: ConflictStrategy,
+    pub sync_root_id: String,
+}
+
+/// Worker 触发来源
+#[derive(Debug, Clone, PartialEq)]
+pub enum WorkerTrigger {
+    InitialSync,
+    Continuous,
+    Manual,
+}
+
+impl WorkerTrigger {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            WorkerTrigger::InitialSync => "initial_sync",
+            WorkerTrigger::Continuous => "continuous",
+            WorkerTrigger::Manual => "manual",
+        }
+    }
+}
+
+/// Worker 级别状态
+#[derive(Debug, Clone, PartialEq)]
+pub enum WorkerStatus {
+    Pending,
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+impl WorkerStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            WorkerStatus::Pending => "pending",
+            WorkerStatus::Running => "running",
+            WorkerStatus::Completed => "completed",
+            WorkerStatus::Failed => "failed",
+            WorkerStatus::Cancelled => "cancelled",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "pending" => WorkerStatus::Pending,
+            "running" => WorkerStatus::Running,
+            "completed" => WorkerStatus::Completed,
+            "failed" => WorkerStatus::Failed,
+            "cancelled" => WorkerStatus::Cancelled,
+            _ => WorkerStatus::Pending,
+        }
+    }
+}
+
+/// 单文件操作状态
+#[derive(Debug, Clone, PartialEq)]
+pub enum TaskItemStatus {
+    Pending,
+    Running,
+    Completed,
+    Failed,
+    Skipped,
+}
+
+impl TaskItemStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TaskItemStatus::Pending => "pending",
+            TaskItemStatus::Running => "running",
+            TaskItemStatus::Completed => "completed",
+            TaskItemStatus::Failed => "failed",
+            TaskItemStatus::Skipped => "skipped",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "pending" => TaskItemStatus::Pending,
+            "running" => TaskItemStatus::Running,
+            "completed" => TaskItemStatus::Completed,
+            "failed" => TaskItemStatus::Failed,
+            "skipped" => TaskItemStatus::Skipped,
+            _ => TaskItemStatus::Pending,
+        }
+    }
+}
+
+/// 操作类型 — 精确记录每个文件的操作
+#[derive(Debug, Clone, PartialEq)]
+pub enum TaskActionType {
+    Upload,
+    Download,
+    DeleteLocal,
+    DeleteRemote,
+    Rename,
+    MkdirRemote,
+    MkdirLocal,
+    ConflictResolve,
+}
+
+impl TaskActionType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TaskActionType::Upload => "upload",
+            TaskActionType::Download => "download",
+            TaskActionType::DeleteLocal => "delete_local",
+            TaskActionType::DeleteRemote => "delete_remote",
+            TaskActionType::Rename => "rename",
+            TaskActionType::MkdirRemote => "mkdir_remote",
+            TaskActionType::MkdirLocal => "mkdir_local",
+            TaskActionType::ConflictResolve => "conflict_resolve",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "upload" => TaskActionType::Upload,
+            "download" => TaskActionType::Download,
+            "delete_local" => TaskActionType::DeleteLocal,
+            "delete_remote" => TaskActionType::DeleteRemote,
+            "rename" => TaskActionType::Rename,
+            "mkdir_remote" => TaskActionType::MkdirRemote,
+            "mkdir_local" => TaskActionType::MkdirLocal,
+            "conflict_resolve" => TaskActionType::ConflictResolve,
+            _ => TaskActionType::Upload,
+        }
+    }
+}
+
+/// Worker 级别的任务摘要 — DB 持久化，供 UI 查询
+#[derive(Debug, Clone)]
+pub struct SyncTask {
+    pub id: String,
+    pub trigger: WorkerTrigger,
+    pub total_count: u32,
+    pub completed_count: u32,
+    pub failed_count: u32,
+    pub status: WorkerStatus,
+    pub created_at: String,
+    pub updated_at: String,
+    pub finished_at: Option<String>,
+}
+
+/// 单文件操作记录 — DB 持久化，支持多维度查询
+#[derive(Debug, Clone)]
+pub struct SyncTaskItem {
+    pub id: i64,
+    pub task_id: String,
+    pub relative_path: String,
+    pub action_type: TaskActionType,
+    pub status: TaskItemStatus,
+    pub file_size: u64,
+    pub error_message: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// 任务项查询过滤器
+#[derive(Debug, Clone, Default)]
+pub struct TaskItemFilter {
+    pub task_id: Option<String>,
+    pub relative_path_contains: Option<String>,
+    pub action_type: Option<String>,
+    pub status: Option<String>,
+    pub limit: u32,
+    pub offset: u32,
 }
 
 // ===== 云端相册检查结果 =====

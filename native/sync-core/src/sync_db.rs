@@ -139,7 +139,37 @@ impl SyncDb {
                 remote_uri      TEXT NOT NULL,
                 file_hash       TEXT,
                 synced_at       TEXT NOT NULL
-            );",
+            );
+
+            CREATE TABLE IF NOT EXISTS sync_task (
+                id              TEXT PRIMARY KEY,
+                trigger         TEXT NOT NULL,
+                total_count     INTEGER NOT NULL DEFAULT 0,
+                completed_count INTEGER NOT NULL DEFAULT 0,
+                failed_count    INTEGER NOT NULL DEFAULT 0,
+                status          TEXT NOT NULL DEFAULT 'pending',
+                created_at      TEXT NOT NULL,
+                updated_at      TEXT NOT NULL,
+                finished_at     TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS sync_task_item (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id         TEXT NOT NULL REFERENCES sync_task(id),
+                relative_path   TEXT NOT NULL,
+                action_type     TEXT NOT NULL,
+                status          TEXT NOT NULL DEFAULT 'pending',
+                file_size       INTEGER NOT NULL DEFAULT 0,
+                error_message   TEXT,
+                created_at      TEXT NOT NULL,
+                updated_at      TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_task_item_task ON sync_task_item(task_id);
+            CREATE INDEX IF NOT EXISTS idx_task_item_path ON sync_task_item(relative_path);
+            CREATE INDEX IF NOT EXISTS idx_task_item_action ON sync_task_item(action_type);
+            CREATE INDEX IF NOT EXISTS idx_task_item_status ON sync_task_item(status);
+            CREATE INDEX IF NOT EXISTS idx_task_status ON sync_task(status);",
         )?;
         Ok(())
     }
@@ -404,6 +434,197 @@ impl SyncDb {
         )?;
         Ok(())
     }
+
+    // ===== sync_task 操作 =====
+
+    pub async fn create_sync_task(&self, task: &SyncTask) -> Result<()> {
+        let conn = self.write_conn.lock().await;
+        conn.execute(
+            "INSERT INTO sync_task (id, trigger, total_count, completed_count, failed_count, status, created_at, updated_at, finished_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            rusqlite::params![
+                task.id,
+                task.trigger.as_str(),
+                task.total_count,
+                task.completed_count,
+                task.failed_count,
+                task.status.as_str(),
+                task.created_at,
+                task.updated_at,
+                task.finished_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub async fn update_sync_task_status(&self, task_id: &str, status: &WorkerStatus) -> Result<()> {
+        let conn = self.write_conn.lock().await;
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE sync_task SET status = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![status.as_str(), now, task_id],
+        )?;
+        Ok(())
+    }
+
+    pub async fn update_sync_task_total_count(&self, task_id: &str, total_count: u32) -> Result<()> {
+        let conn = self.write_conn.lock().await;
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE sync_task SET total_count = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![total_count, now, task_id],
+        )?;
+        Ok(())
+    }
+
+    pub async fn finish_sync_task(&self, task_id: &str, status: &WorkerStatus, completed: u32, failed: u32) -> Result<()> {
+        let conn = self.write_conn.lock().await;
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE sync_task SET status = ?1, completed_count = ?2, failed_count = ?3, updated_at = ?4, finished_at = ?5 WHERE id = ?6",
+            rusqlite::params![status.as_str(), completed, failed, now, now, task_id],
+        )?;
+        Ok(())
+    }
+
+    pub async fn increment_task_completed(&self, task_id: &str) -> Result<()> {
+        let conn = self.write_conn.lock().await;
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE sync_task SET completed_count = completed_count + 1, updated_at = ?1 WHERE id = ?2",
+            rusqlite::params![now, task_id],
+        )?;
+        Ok(())
+    }
+
+    pub async fn increment_task_failed(&self, task_id: &str) -> Result<()> {
+        let conn = self.write_conn.lock().await;
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE sync_task SET failed_count = failed_count + 1, updated_at = ?1 WHERE id = ?2",
+            rusqlite::params![now, task_id],
+        )?;
+        Ok(())
+    }
+
+    pub async fn get_active_sync_tasks(&self) -> Result<Vec<SyncTask>> {
+        let pool = self.read_pool.clone();
+        let result = tokio::task::spawn_blocking(move || -> Result<Vec<SyncTask>> {
+            let conn = pool.get()?;
+            let mut stmt = conn.prepare(
+                "SELECT id, trigger, total_count, completed_count, failed_count, status, created_at, updated_at, finished_at
+                 FROM sync_task WHERE status IN ('pending', 'running')
+                 ORDER BY created_at DESC"
+            )?;
+            let tasks = stmt.query_map([], |row| sync_task_from_row(row))?
+                .filter_map(|t| t.ok()).collect();
+            Ok(tasks)
+        }).await??;
+        Ok(result)
+    }
+
+    pub async fn get_recent_sync_tasks(&self, limit: u32) -> Result<Vec<SyncTask>> {
+        let pool = self.read_pool.clone();
+        let result = tokio::task::spawn_blocking(move || -> Result<Vec<SyncTask>> {
+            let conn = pool.get()?;
+            let mut stmt = conn.prepare(
+                "SELECT id, trigger, total_count, completed_count, failed_count, status, created_at, updated_at, finished_at
+                 FROM sync_task ORDER BY created_at DESC LIMIT ?1"
+            )?;
+            let tasks = stmt.query_map(rusqlite::params![limit], |row| sync_task_from_row(row))?
+                .filter_map(|t| t.ok()).collect();
+            Ok(tasks)
+        }).await??;
+        Ok(result)
+    }
+
+    // ===== sync_task_item 操作 =====
+
+    pub async fn create_sync_task_item(&self, item: &SyncTaskItem) -> Result<i64> {
+        let conn = self.write_conn.lock().await;
+        conn.execute(
+            "INSERT INTO sync_task_item (task_id, relative_path, action_type, status, file_size, error_message, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![
+                item.task_id,
+                item.relative_path,
+                item.action_type.as_str(),
+                item.status.as_str(),
+                item.file_size,
+                item.error_message,
+                item.created_at,
+                item.updated_at,
+            ],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    pub async fn update_sync_task_item_status(&self, item_id: i64, status: &TaskItemStatus, error_message: Option<&str>) -> Result<()> {
+        let conn = self.write_conn.lock().await;
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE sync_task_item SET status = ?1, error_message = ?2, updated_at = ?3 WHERE id = ?4",
+            rusqlite::params![status.as_str(), error_message, now, item_id],
+        )?;
+        Ok(())
+    }
+
+    pub async fn get_sync_task_items(&self, task_id: &str) -> Result<Vec<SyncTaskItem>> {
+        let pool = self.read_pool.clone();
+        let task_id = task_id.to_string();
+        let result = tokio::task::spawn_blocking(move || -> Result<Vec<SyncTaskItem>> {
+            let conn = pool.get()?;
+            let mut stmt = conn.prepare(
+                "SELECT id, task_id, relative_path, action_type, status, file_size, error_message, created_at, updated_at
+                 FROM sync_task_item WHERE task_id = ?1 ORDER BY id"
+            )?;
+            let items = stmt.query_map(rusqlite::params![task_id], |row| sync_task_item_from_row(row))?
+                .filter_map(|i| i.ok()).collect();
+            Ok(items)
+        }).await??;
+        Ok(result)
+    }
+
+    pub async fn query_task_items(&self, filter: &TaskItemFilter) -> Result<Vec<SyncTaskItem>> {
+        let pool = self.read_pool.clone();
+        let filter = filter.clone();
+        let result = tokio::task::spawn_blocking(move || -> Result<Vec<SyncTaskItem>> {
+            let conn = pool.get()?;
+            let mut sql = String::from(
+                "SELECT id, task_id, relative_path, action_type, status, file_size, error_message, created_at, updated_at
+                 FROM sync_task_item WHERE 1=1"
+            );
+            let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+            if let Some(ref task_id) = filter.task_id {
+                sql.push_str(" AND task_id = ?");
+                params.push(Box::new(task_id.clone()));
+            }
+            if let Some(ref path_contains) = filter.relative_path_contains {
+                sql.push_str(" AND relative_path LIKE ?");
+                params.push(Box::new(format!("%{}%", path_contains)));
+            }
+            if let Some(ref action_type) = filter.action_type {
+                sql.push_str(" AND action_type = ?");
+                params.push(Box::new(action_type.clone()));
+            }
+            if let Some(ref status) = filter.status {
+                sql.push_str(" AND status = ?");
+                params.push(Box::new(status.clone()));
+            }
+
+            sql.push_str(" ORDER BY id DESC LIMIT ? OFFSET ?");
+            params.push(Box::new(filter.limit));
+            params.push(Box::new(filter.offset));
+
+            let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+            let mut stmt = conn.prepare(&sql)?;
+            let items = stmt.query_map(param_refs.as_slice(), |row| sync_task_item_from_row(row))?
+                .filter_map(|i| i.ok()).collect();
+            Ok(items)
+        }).await??;
+        Ok(result)
+    }
 }
 
 fn parse_sync_status(s: &str) -> SyncFileStatus {
@@ -468,4 +689,42 @@ fn transfer_task_from_row(row: &rusqlite::Row<'_>) -> TransferTask {
         session_id: row.get(12).ok(),
         chunk_index: row.get(13).ok(),
     }
+}
+
+fn sync_task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SyncTask> {
+    let trigger_str: String = row.get(1)?;
+    let trigger = match trigger_str.as_str() {
+        "initial_sync" => WorkerTrigger::InitialSync,
+        "continuous" => WorkerTrigger::Continuous,
+        "manual" => WorkerTrigger::Manual,
+        _ => WorkerTrigger::Manual,
+    };
+    let status_str: String = row.get(5)?;
+    Ok(SyncTask {
+        id: row.get(0)?,
+        trigger,
+        total_count: row.get(2)?,
+        completed_count: row.get(3)?,
+        failed_count: row.get(4)?,
+        status: WorkerStatus::from_str(&status_str),
+        created_at: row.get(6)?,
+        updated_at: row.get(7)?,
+        finished_at: row.get(8)?,
+    })
+}
+
+fn sync_task_item_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SyncTaskItem> {
+    let action_str: String = row.get(3)?;
+    let status_str: String = row.get(4)?;
+    Ok(SyncTaskItem {
+        id: row.get(0)?,
+        task_id: row.get(1)?,
+        relative_path: row.get(2)?,
+        action_type: TaskActionType::from_str(&action_str),
+        status: TaskItemStatus::from_str(&status_str),
+        file_size: row.get(5)?,
+        error_message: row.get(6)?,
+        created_at: row.get(7)?,
+        updated_at: row.get(8)?,
+    })
 }

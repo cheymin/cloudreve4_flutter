@@ -1,5 +1,6 @@
 use crate::models::*;
 
+#[derive(Clone)]
 pub struct ConflictResolver {
     pub default_strategy: ConflictStrategy,
 }
@@ -20,7 +21,28 @@ impl ConflictResolver {
         remote_size: u64,
         local_name: &str,
     ) -> ConflictResolution {
-        match &self.default_strategy {
+        self.resolve_with_strategy(
+            &self.default_strategy,
+            conflict_type,
+            local_mtime,
+            remote_mtime,
+            local_size,
+            remote_size,
+            local_name,
+        )
+    }
+
+    pub fn resolve_with_strategy(
+        &self,
+        strategy: &ConflictStrategy,
+        conflict_type: ConflictType,
+        local_mtime: i64,
+        remote_mtime: i64,
+        local_size: u64,
+        remote_size: u64,
+        local_name: &str,
+    ) -> ConflictResolution {
+        match strategy {
             ConflictStrategy::KeepLocal => ConflictResolution::UploadLocal,
             ConflictStrategy::KeepRemote => ConflictResolution::DownloadRemote,
             ConflictStrategy::KeepBoth => {

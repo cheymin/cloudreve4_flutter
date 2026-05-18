@@ -223,6 +223,12 @@ pub async fn init_sync_engine(config: SyncConfigFfi) -> Result<(), SyncErrorFfi>
         }
     }
 
+    // 提取配置信息用于日志（在 move 之前）
+    let log_sync_mode = config.sync_mode.clone();
+    let log_conflict_strategy = config.conflict_strategy.clone();
+    let log_max_concurrent = config.max_concurrent_transfers;
+    let log_bandwidth = config.bandwidth_limit_kbps;
+
     let engine = SyncEngine::new(config_from_ffi(config)).await
         .map_err(error_to_ffi)?;
 
@@ -232,6 +238,13 @@ pub async fn init_sync_engine(config: SyncConfigFfi) -> Result<(), SyncErrorFfi>
         })?;
 
     tracing::info!("同步引擎初始化完成, 日志文件: {}", log_path.display());
+    tracing::info!(
+        "配置: 模式={}, 冲突策略={}, 并发={}, 带宽限制={}kbps",
+        log_sync_mode, log_conflict_strategy, log_max_concurrent, log_bandwidth,
+    );
+    if log_bandwidth > 0 {
+        tracing::info!("仅对下载限速生效, 由于Cloudreve实现原因, 上传限速无法生效");
+    }
     Ok(())
 }
 
@@ -307,11 +320,18 @@ pub async fn get_sync_status() -> Result<SyncStatusFfi, SyncErrorFfi> {
     Ok(status_to_ffi(engine.status()))
 }
 
+/// 获取活跃 Worker 数量
+#[frb]
+pub async fn get_active_worker_count() -> Result<u32, SyncErrorFfi> {
+    let engine = get_engine()?;
+    Ok(engine.active_worker_count())
+}
+
 /// 获取同步配置
 #[frb]
 pub async fn get_sync_config() -> Result<SyncConfigFfi, SyncErrorFfi> {
     let engine = get_engine()?;
-    Ok(config_to_ffi(&engine.config()))
+    Ok(config_to_ffi(&engine.config().await))
 }
 
 /// 更新同步配置
@@ -366,4 +386,86 @@ pub async fn check_cloud_album_dirs(base_uri: String) -> Result<CloudAlbumCheckR
 pub async fn create_cloud_album_dirs(base_uri: String) -> Result<(), SyncErrorFfi> {
     let engine = get_engine()?;
     engine.create_album_dirs(&base_uri).await.map_err(error_to_ffi)
+}
+
+// ========== 事件推送 ==========
+
+/// 注册 Rust→Dart 事件推送通道
+#[frb]
+pub fn register_sync_event_sink(sink: crate::frb_generated::StreamSink<SyncEventFfi>) -> Result<(), SyncErrorFfi> {
+    let engine = get_engine()?;
+    // 使用 tokio runtime 注册
+    let rt = tokio::runtime::Handle::current();
+    rt.block_on(engine.register_event_sink(sink));
+    Ok(())
+}
+
+// ========== 任务查询 ==========
+
+/// 获取活跃的同步任务列表
+#[frb]
+pub async fn get_active_tasks() -> Result<Vec<SyncTaskFfi>, SyncErrorFfi> {
+    let engine = get_engine()?;
+    let tasks = engine.get_active_tasks().await.map_err(error_to_ffi)?;
+    Ok(tasks.into_iter().map(task_to_ffi).collect())
+}
+
+/// 获取最近同步任务列表
+#[frb]
+pub async fn get_recent_tasks(limit: u32) -> Result<Vec<SyncTaskFfi>, SyncErrorFfi> {
+    let engine = get_engine()?;
+    let tasks = engine.get_recent_tasks(limit).await.map_err(error_to_ffi)?;
+    Ok(tasks.into_iter().map(task_to_ffi).collect())
+}
+
+/// 获取任务详情（任务项列表）
+#[frb]
+pub async fn get_task_detail(task_id: String) -> Result<Vec<SyncTaskItemFfi>, SyncErrorFfi> {
+    let engine = get_engine()?;
+    let items = engine.get_task_detail(&task_id).await.map_err(error_to_ffi)?;
+    Ok(items.into_iter().map(task_item_to_ffi).collect())
+}
+
+/// 多维度查询任务项
+#[frb]
+pub async fn query_task_items(filter: TaskItemFilterFfi) -> Result<Vec<SyncTaskItemFfi>, SyncErrorFfi> {
+    let engine = get_engine()?;
+    let model_filter = crate::models::TaskItemFilter {
+        task_id: filter.task_id,
+        relative_path_contains: filter.relative_path_contains,
+        action_type: filter.action_type,
+        status: filter.status,
+        limit: filter.limit.max(1).min(1000),
+        offset: filter.offset,
+    };
+    let items = engine.query_task_items(&model_filter).await.map_err(error_to_ffi)?;
+    Ok(items.into_iter().map(task_item_to_ffi).collect())
+}
+
+fn task_to_ffi(t: crate::models::SyncTask) -> SyncTaskFfi {
+    SyncTaskFfi {
+        id: t.id,
+        trigger: t.trigger.as_str().to_string(),
+        total_count: t.total_count,
+        completed_count: t.completed_count,
+        failed_count: t.failed_count,
+        status: t.status.as_str().to_string(),
+        created_at: t.created_at,
+        updated_at: t.updated_at,
+        finished_at: t.finished_at,
+    }
+}
+
+fn task_item_to_ffi(i: crate::models::SyncTaskItem) -> SyncTaskItemFfi {
+    SyncTaskItemFfi {
+        id: i.id,
+        task_id: i.task_id,
+        relative_path: i.relative_path,
+        action_type: i.action_type.as_str().to_string(),
+        status: i.status.as_str().to_string(),
+        file_size: i.file_size,
+        error_message: i.error_message,
+        created_at: i.created_at,
+        updated_at: i.updated_at,
+    }
 }
