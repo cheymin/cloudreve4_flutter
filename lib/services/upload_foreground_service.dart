@@ -197,7 +197,7 @@ void uploadForegroundTaskStartCallback() {
 class _UploadForegroundTaskHandler extends TaskHandler {
   @override
   Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
-    print('Upload foreground task started: ${starter.name}');
+    AppLogger.d('Upload foreground task started: ${starter.name}');
   }
 
   @override
@@ -207,12 +207,12 @@ class _UploadForegroundTaskHandler extends TaskHandler {
 
   @override
   Future<void> onDestroy(DateTime timestamp, bool isTimeout) async {
-    print('Upload foreground task destroyed, isTimeout=$isTimeout');
+    AppLogger.d('Upload foreground task destroyed, isTimeout=$isTimeout');
   }
 
   @override
   void onReceiveData(Object data) {
-    print('Upload foreground task receive data: $data');
+    AppLogger.d('Upload foreground task receive data: $data');
   }
 
   @override

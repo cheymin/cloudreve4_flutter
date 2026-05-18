@@ -8,38 +8,40 @@ plugins {
 import java.util.Properties
 import java.io.FileInputStream
 
-// 读取 android/key.properties；如果没有正式签名文件，就自动回退到 debug 签名，保证 release APK 能打出来。
+// 1. Create a Properties object
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+
+// 2. Load the file if it exists
+if (localPropertiesFile.exists()) {
+    localProperties.load(FileInputStream(localPropertiesFile))
+}
+
+// 3. Helper function to read the value as an Int
+fun getLocalProperty(key: String, defaultValue: Int): Int {
+    val value = localProperties.getProperty(key)
+    return value?.toIntOrNull() ?: defaultValue
+}
+
+// 1. 加载 key.properties  release 必须有签名信息, 不允许 debug key
 val keystoreProperties = Properties()
 val keystorePropertiesFile = rootProject.file("key.properties")
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
-fun Any?.isNonBlankString(): Boolean = this?.toString()?.isNotBlank() == true
-
-val releaseStoreFilePath = keystoreProperties["storeFile"]?.toString()
-val releaseStoreFile = releaseStoreFilePath?.let { file(it) }
-
-val hasReleaseKeystore =
-    keystoreProperties["keyAlias"].isNonBlankString() &&
-    keystoreProperties["keyPassword"].isNonBlankString() &&
-    keystoreProperties["storePassword"].isNonBlankString() &&
-    releaseStoreFile != null &&
-    releaseStoreFile.exists()
-
 android {
     namespace = "com.limo.cloudreve4_flutter"
-    compileSdk = 36
+    compileSdk = getLocalProperty("flutter.compileSdkVersion", 34)
     ndkVersion = flutter.ndkVersion
 
+    // 2. 配置签名选项
     signingConfigs {
         create("release") {
-            if (hasReleaseKeystore) {
-                keyAlias = keystoreProperties["keyAlias"] as String
-                keyPassword = keystoreProperties["keyPassword"] as String
-                storeFile = releaseStoreFile
-                storePassword = keystoreProperties["storePassword"] as String
-            }
+            keyAlias = keystoreProperties["keyAlias"] as String?
+            keyPassword = keystoreProperties["keyPassword"] as String?
+            storeFile = keystoreProperties["storeFile"]?.let { file(it) }
+            storePassword = keystoreProperties["storePassword"] as String?
         }
     }
 
@@ -55,44 +57,27 @@ android {
 
     defaultConfig {
         applicationId = "com.limo.cloudreve4_flutter"
-
-        // 兼容你现在这台 MIUI 13 / Android 12 设备，同时仍按 Android 13+ 规则适配高版本系统。
-        // Android 13+ 专项适配靠 targetSdk=36 和运行时权限/前台服务类型，不靠 minSdk=33。
-        minSdk = 31
-        targetSdk = 36
-
+        minSdk = getLocalProperty("flutter.minSdkVersion", 31)
+        targetSdk = getLocalProperty("flutter.targetSdkVersion", 34)
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
     packaging {
         resources {
+            // 如果遇到重复的 .so 文件，优先取第一个
             pickFirst("lib/**/libmpv.so")
             pickFirst("lib/**/libmediakitandroidhelper.so")
         }
     }
 
     buildTypes {
-        debug {
-            signingConfig = signingConfigs.getByName("debug")
-        }
-
         release {
-            // 没有 android/key.properties 或正式 keystore 时，自动使用 debug 签名。
-            signingConfig = if (hasReleaseKeystore) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
-            }
-
-            // 先关闭 R8 混淆/资源压缩，避免 Play Core deferred components 缺失类导致打包失败。
-            isMinifyEnabled = false
-            isShrinkResources = false
-
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
+            signingConfig = signingConfigs.getByName("release")
+            
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 
@@ -100,11 +85,14 @@ android {
         val variant = this
         outputs.all {
             val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
-            val appName = "mengling_netdisk"
+            val appName = "cloudreve4_flutter"
             val versionName = variant.versionName
             val versionCode = variant.versionCode
+            val type = variant.name // release 或 debug
+
             val abi = output.getFilter(com.android.build.OutputFile.ABI) ?: "universal"
-            output.outputFileName = "${appName}_v${versionName}_${versionCode}_${abi}_${variant.name}.apk"
+            
+            output.outputFileName = "${appName}_v${versionName}_${versionCode}_${abi}_release.apk"
         }
     }
 }

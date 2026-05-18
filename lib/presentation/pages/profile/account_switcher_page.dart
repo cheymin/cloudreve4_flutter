@@ -2,7 +2,6 @@ import 'package:cloudreve4_flutter/data/models/user_model.dart';
 import 'package:cloudreve4_flutter/presentation/providers/auth_provider.dart';
 import 'package:cloudreve4_flutter/presentation/widgets/user_avatar.dart';
 import 'package:cloudreve4_flutter/router/app_router.dart';
-import 'package:cloudreve4_flutter/services/server_service.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';

@@ -308,15 +308,22 @@ class _StorePageState extends State<StorePage> with SingleTickerProviderStateMix
                             ),
                       ),
                       const SizedBox(height: 8),
-                      ...providers.map(
-                        (provider) => RadioListTile<StorePaymentProvider>(
-                          value: provider,
-                          groupValue: selectedProvider,
-                          onChanged: (value) => setSheetState(() {
-                            selectedProvider = value;
-                          }),
-                          title: Text(provider.name),
-                          subtitle: Text(provider.type),
+                      RadioGroup<StorePaymentProvider>(
+                        groupValue: selectedProvider, // 统一管理选中的状态
+                        onChanged: (value) => setSheetState(() {
+                          selectedProvider = value;
+                        }),
+                        // 💡 2. 用 Column 容纳通过 map 遍历出来的 RadioListTile 列表
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: providers.map(
+                            (provider) => RadioListTile<StorePaymentProvider>(
+                              value: provider,
+                              // 💡 3. 这里成功去掉了已经废弃的 groupValue 和 onChanged
+                              title: Text(provider.name),
+                              subtitle: Text(provider.type),
+                            ),
+                          ).toList(), // 记得转成 List
                         ),
                       ),
                     ] else ...[

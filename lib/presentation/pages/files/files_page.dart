@@ -169,13 +169,28 @@ class _FilesPageState extends State<FilesPage> {
               return const Text('文件');
             }
             final segments = fileManager.currentPath.split('/').where((s) => s.isNotEmpty).toList();
-            return Text(segments.isNotEmpty ? segments.last : '文件');
+            return Text(segments.isNotEmpty ? _decodePathSegment(segments.last) : '文件');
           }
           return _buildMobileBreadcrumb(context, fileManager);
         },
       ),
       actions: isDesktop ? _buildDesktopActions() : _buildMobileActions(),
     );
+  }
+
+  /// 循环解码路径段，处理多重 URL 编码（如 %25E4%25B8%25AD → 中文）
+  String _decodePathSegment(String segment) {
+    var decoded = segment;
+    for (var i = 0; i < 5; i++) {
+      try {
+        final next = Uri.decodeComponent(decoded);
+        if (next == decoded) break;
+        decoded = next;
+      } catch (_) {
+        break;
+      }
+    }
+    return decoded;
   }
 
   Widget _buildMobileBreadcrumb(BuildContext context, FileManagerProvider fileManager) {
@@ -204,7 +219,7 @@ class _FilesPageState extends State<FilesPage> {
             ),
             _buildBreadcrumbChip(
               context,
-              label: pathParts[i],
+              label: _decodePathSegment(pathParts[i]),
               icon: null,
               color: colorScheme.primary,
               isLast: i == pathParts.length - 1,

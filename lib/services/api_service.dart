@@ -456,7 +456,7 @@ class ApiService {
       // 调用方应直接使用 payload。若 payload 是 List 而泛型写成 Map，
       // 这里不要再强制把 List 当 Map；优先在类型匹配时返回。
       if (payload is T) {
-        return payload as T;
+        return payload;
       }
 
       if (data is T) {

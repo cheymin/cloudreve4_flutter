@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 import '../../../core/utils/date_utils.dart' as date_utils;
-import '../../../core/utils/file_icon_utils.dart';
 import '../../../core/utils/file_type_utils.dart';
 import '../../../data/models/file_model.dart';
 import '../../../router/app_router.dart';
