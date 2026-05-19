@@ -244,6 +244,7 @@ pub enum RemoteFileEvent {
     Created(RemoteFileEntry),
     Modified(RemoteFileEntry),
     Deleted { uri: String, name: String },
+    Moved { old_uri: String, new_entry: RemoteFileEntry },
 }
 
 // ===== 平台回调事件 (Windows CFApi) =====

@@ -1,6 +1,7 @@
 use crate::api_client::ApiClient;
 use crate::errors::Result;
 use crate::models::{RemoteFileEntry, RemoteFileEvent};
+use eventsource::event::{parse_event_line, Event, ParseResult};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -21,126 +22,200 @@ impl EventHandler {
     pub async fn subscribe_sse(&self, uri: &str) -> Result<mpsc::Receiver<RemoteFileEvent>> {
         let (tx, rx) = mpsc::channel(256);
 
-        let base_url = self.api.base_url();
-        let url = format!("{}/file/events", base_url);
-        let token = self.api.token().await;
+        let api = self.api.clone();
         let client_id = self.client_id.clone();
-        let uri = uri.to_string();
+        let remote_root = uri.to_string();
 
         tokio::spawn(async move {
             loop {
-                match Self::connect_sse(&url, &token, &client_id, &uri, &tx).await {
+                // 每次重连获取最新 token
+                let token = api.token().await;
+                let base_url = api.base_url().to_string();
+
+                match Self::connect_sse(&base_url, &token, &client_id, &remote_root, &tx).await {
                     Ok(_) => {
-                        tracing::info!("SSE 连接关闭，3秒后重连...");
+                        tracing::info!("[SSE] 连接关闭，5秒后重连...");
                     }
                     Err(e) => {
-                        tracing::warn!("SSE 连接错误: {}，5秒后重连...", e);
+                        tracing::warn!("[SSE] 连接错误: {}，5秒后重连...", e);
                     }
                 }
 
-                // 重连前等待
                 tokio::time::sleep(Duration::from_secs(5)).await;
 
-                // 如果接收端已关闭，退出循环
                 if tx.is_closed() {
                     break;
                 }
             }
+
+            tracing::info!("[SSE] 订阅任务退出");
         });
 
         Ok(rx)
     }
 
-    /// 建立 SSE 连接并解析事件
+    /// 建立 SSE 连接，使用 eventsource parser 正确解析事件
     async fn connect_sse(
-        url: &str,
+        base_url: &str,
         token: &str,
         client_id: &str,
-        _uri: &str,
+        remote_root: &str,
         tx: &mpsc::Sender<RemoteFileEvent>,
     ) -> Result<()> {
+        let url = format!("{}/file/events", base_url);
+
+        tracing::info!("[SSE] 正在连接: {}?uri={}", url, remote_root);
+
         let client = reqwest::Client::new();
         let resp = client
-            .get(url)
+            .get(&url)
             .bearer_auth(token)
             .header("X-Cr-Client-Id", client_id)
             .header("Accept", "text/event-stream")
             .header("Cache-Control", "no-cache")
-            .query(&[("uri", "cloudreve://my")])
+            .query(&[("uri", remote_root)])
             .send()
             .await?;
 
         if !resp.status().is_success() {
             return Err(crate::errors::SyncError::Network(
-                format!("SSE 连接失败: HTTP {}", resp.status()),
+                format!("[SSE] 连接失败: HTTP {}", resp.status()),
             ));
         }
+
+        tracing::info!("[SSE] 连接成功，开始监听事件 (uri={})", remote_root);
 
         let mut stream = resp.bytes_stream();
         use futures_util::StreamExt;
 
-        let mut event_type = String::new();
-        let mut data_buffer = String::new();
+        // 行缓冲：跨 chunk 累积不完整的行
+        let mut line_buf = String::new();
+        // 当前正在组装的事件
+        let mut event = Event::new();
+        let mut event_count: u64 = 0;
 
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(|e| crate::errors::SyncError::Network(e.to_string()))?;
             let text = String::from_utf8_lossy(&chunk);
+            line_buf.push_str(&text);
 
-            for line in text.lines() {
-                if let Some(stripped) = line.strip_prefix("event:") {
-                    event_type = stripped.trim().to_string();
-                } else if let Some(stripped) = line.strip_prefix("data:") {
-                    data_buffer = stripped.trim().to_string();
-                } else if line.is_empty() && !data_buffer.is_empty() {
-                    // 空行表示事件结束
-                    if event_type == "event" {
-                        if let Ok(events) = serde_json::from_str::<Vec<SseFileEvent>>(&data_buffer) {
-                            for ev in events {
-                                let remote_event = match ev.event_type.as_str() {
-                                    "create" | "modify" => {
-                                        // 需要获取文件详情
-                                        Some(RemoteFileEvent::Modified(RemoteFileEntry {
-                                            uri: ev.from.clone(),
-                                            name: ev.from.split('/').next_back()
-                                                .unwrap_or("").to_string(),
-                                            size: 0,
-                                            mtime_ms: 0,
-                                            hash: None,
-                                            is_dir: false,
-                                            file_id: Some(ev.file_id.clone()),
-                                            path: ev.from.clone(),
-                                            created_at_ms: 0,
-                                        }))
-                                    }
-                                    "delete" => {
-                                        Some(RemoteFileEvent::Deleted {
-                                            uri: ev.from.clone(),
-                                            name: ev.from.split('/').next_back()
-                                                .unwrap_or("").to_string(),
-                                        })
-                                    }
-                                    _ => None,
-                                };
+            // 按换行符拆分完整行，交给 eventsource parser 处理
+            while let Some(newline_pos) = line_buf.find('\n') {
+                let line = line_buf[..=newline_pos].to_string();
+                line_buf = line_buf[newline_pos + 1..].to_string();
 
-                                if let Some(event) = remote_event {
-                                    if tx.send(event).await.is_err() {
+                match parse_event_line(&line, &mut event) {
+                    ParseResult::Next => {}
+                    ParseResult::Dispatch => {
+                        // 空事件 (keep-alive 心跳) 跳过
+                        if event.is_empty() {
+                            event.clear();
+                            continue;
+                        }
+
+                        event_count += 1;
+                        let event_type = event.event_type.clone().unwrap_or_default();
+
+                        if event_type == "event" {
+                            // data 末尾有 \n（eventsource parser 拼接的），trim 后解析 JSON
+                            // 服务端可能发送单个对象或数组
+                            let data = event.data.trim();
+                            let events: Vec<SseFileEvent> = if data.starts_with('[') {
+                                serde_json::from_str(data).unwrap_or_default()
+                            } else {
+                                serde_json::from_str(data)
+                                    .map(|e| vec![e])
+                                    .unwrap_or_else(|_| {
+                                        tracing::warn!("[SSE] 无法解析事件数据: {}", data);
+                                        Vec::new()
+                                    })
+                            };
+
+                            for ev in &events {
+                                if let Some(remote_event) = Self::parse_sse_event(ev) {
+                                    tracing::info!(
+                                        "[SSE] 收到事件: type={}, from={}",
+                                        ev.event_type, ev.from
+                                    );
+                                    if tx.send(remote_event).await.is_err() {
                                         return Ok(());
                                     }
                                 }
                             }
+                        } else if event_type == "reconnect-required" {
+                            tracing::info!("[SSE] 服务端要求重连");
+                            return Ok(());
+                        } else if event_type == "subscribed" {
+                            tracing::info!("[SSE] 订阅确认成功");
+                        } else if event_type == "keep-alive" {
+                            // 心跳，静默忽略
+                        } else {
+                            tracing::debug!(
+                                "[SSE] 忽略未知事件: type={:?}, data={}",
+                                event.event_type,
+                                event.data.trim()
+                            );
                         }
-                    } else if event_type == "reconnect-required" {
-                        tracing::info!("SSE 服务端要求重连");
-                        return Ok(());
-                    }
 
-                    event_type.clear();
-                    data_buffer.clear();
+                        event.clear();
+                    }
+                    ParseResult::SetRetry(retry) => {
+                        tracing::debug!("[SSE] 服务端设置重试间隔: {:?}", retry);
+                    }
                 }
             }
         }
 
+        tracing::info!("[SSE] 流结束，共处理 {} 个事件", event_count);
         Ok(())
+    }
+
+    /// 将 SSE 文件事件转为内部 RemoteFileEvent
+    fn parse_sse_event(ev: &SseFileEvent) -> Option<RemoteFileEvent> {
+        match ev.event_type.as_str() {
+            "create" | "modify" => {
+                Some(RemoteFileEvent::Modified(RemoteFileEntry {
+                    uri: ev.from.clone(),
+                    name: ev.from.split('/').next_back()
+                        .unwrap_or("").to_string(),
+                    size: 0,
+                    mtime_ms: 0,
+                    hash: None,
+                    is_dir: false,
+                    file_id: Some(ev.file_id.clone()),
+                    path: ev.from.clone(),
+                    created_at_ms: 0,
+                }))
+            }
+            "delete" => {
+                Some(RemoteFileEvent::Deleted {
+                    uri: ev.from.clone(),
+                    name: ev.from.split('/').next_back()
+                        .unwrap_or("").to_string(),
+                })
+            }
+            "move" => {
+                Some(RemoteFileEvent::Moved {
+                    old_uri: ev.from.clone(),
+                    new_entry: RemoteFileEntry {
+                        uri: ev.to.clone(),
+                        name: ev.to.split('/').next_back()
+                            .unwrap_or("").to_string(),
+                        size: 0,
+                        mtime_ms: 0,
+                        hash: None,
+                        is_dir: false,
+                        file_id: Some(ev.file_id.clone()),
+                        path: ev.to.clone(),
+                        created_at_ms: 0,
+                    },
+                })
+            }
+            _ => {
+                tracing::debug!("[SSE] 忽略未知事件类型: {}", ev.event_type);
+                None
+            }
+        }
     }
 }
 
@@ -191,7 +266,6 @@ impl EventDebouncer {
 }
 
 /// 收集时间窗口内的批量远程事件
-/// 在 run_continuous() 中使用，将窗口内的事件合并为一个 SyncPlan
 pub async fn batch_remote_events(
     rx: &mut mpsc::Receiver<RemoteFileEvent>,
     window: Duration,

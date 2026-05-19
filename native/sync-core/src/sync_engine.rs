@@ -420,7 +420,7 @@ impl SyncEngine {
                 // 远程文件变化 → 构建 SyncPlan → submit_background
                 Some(event) = remote_rx.recv() => {
                     let mut downloads = Vec::new();
-                    let mut _delete_remote_actions: Vec<SyncAction> = Vec::new();
+                    let mut delete_local = Vec::new();
 
                     match &event {
                         RemoteFileEvent::Created(remote) | RemoteFileEvent::Modified(remote) => {
@@ -430,12 +430,28 @@ impl SyncEngine {
                                 &remote.name,
                                 remote.is_dir,
                             );
-                            tracing::debug!("远程下载: {}", relative);
+                            tracing::info!("[远程事件] {}/{:?}: {}", event_type_name(&event), remote.file_id, relative);
+
+                            // 尝试获取完整文件信息（size、mtime 等）
+                            let remote_entry = if remote.size == 0 && !remote.is_dir {
+                                match self.api.get_file_info(&remote.uri).await {
+                                    Ok(info) => {
+                                        tracing::debug!("[远程事件] 获取文件详情成功: {} ({}bytes)", relative, info.size);
+                                        info
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!("[远程事件] 获取文件详情失败，使用SSE信息: {}: {}", relative, e);
+                                        remote.clone()
+                                    }
+                                }
+                            } else {
+                                remote.clone()
+                            };
 
                             downloads.push(SyncAction {
                                 relative_path: relative.clone(),
                                 local_entry: None,
-                                remote_entry: Some(remote.clone()),
+                                remote_entry: Some(remote_entry),
                                 db_mapping: None,
                             });
                         }
@@ -446,11 +462,73 @@ impl SyncEngine {
                                 name,
                                 false,
                             );
-                            tracing::debug!("远程删除，删除本地: {}", relative);
-                            let local_path = local_root.join(&relative);
-                            let _ = tokio::fs::remove_file(&local_path).await;
-                            continue;
+                            tracing::info!("[远程事件] 删除: {}", relative);
+                            delete_local.push(SyncAction {
+                                relative_path: relative,
+                                local_entry: None,
+                                remote_entry: None,
+                                db_mapping: None,
+                            });
                         }
+                        RemoteFileEvent::Moved { old_uri, new_entry } => {
+                            // move = 删除旧位置 + 下载到新位置
+                            let old_relative = crate::diff::remote_relative_path(
+                                &remote_root,
+                                old_uri,
+                                &new_entry.name,
+                                false,
+                            );
+                            let new_relative = crate::diff::remote_relative_path(
+                                &remote_root,
+                                &new_entry.path,
+                                &new_entry.name,
+                                new_entry.is_dir,
+                            );
+                            tracing::info!("[远程事件] 移动: {} -> {}", old_relative, new_relative);
+
+                            delete_local.push(SyncAction {
+                                relative_path: old_relative,
+                                local_entry: None,
+                                remote_entry: None,
+                                db_mapping: None,
+                            });
+
+                            // 获取完整文件信息
+                            let remote_entry = if new_entry.size == 0 && !new_entry.is_dir {
+                                match self.api.get_file_info(&new_entry.uri).await {
+                                    Ok(info) => info,
+                                    Err(e) => {
+                                        tracing::warn!("[远程事件] 获取移动文件详情失败: {}: {}", new_relative, e);
+                                        new_entry.clone()
+                                    }
+                                }
+                            } else {
+                                new_entry.clone()
+                            };
+
+                            downloads.push(SyncAction {
+                                relative_path: new_relative,
+                                local_entry: None,
+                                remote_entry: Some(remote_entry),
+                                db_mapping: None,
+                            });
+                        }
+                    }
+
+                    // 处理远程删除 → 删除本地文件
+                    for action in &delete_local {
+                        let local_path = local_root.join(&action.relative_path);
+                        if local_path.exists() {
+                            if local_path.is_dir() {
+                                let _ = tokio::fs::remove_dir_all(&local_path).await;
+                            } else {
+                                let _ = tokio::fs::remove_file(&local_path).await;
+                            }
+                            tracing::info!("[远程事件] 已删除本地文件: {}", action.relative_path);
+                        }
+                        // 删除 DB 映射
+                        let root_id = self.sync_root_id.clone().unwrap_or_default();
+                        let _ = self.db.delete_file_mapping(&root_id, &action.relative_path).await;
                     }
 
                     if !downloads.is_empty() {
@@ -728,6 +806,15 @@ impl SyncEngine {
         }).await??;
 
         Ok(result)
+    }
+}
+
+fn event_type_name(event: &RemoteFileEvent) -> &'static str {
+    match event {
+        RemoteFileEvent::Created(_) => "create",
+        RemoteFileEvent::Modified(_) => "modify",
+        RemoteFileEvent::Deleted { .. } => "delete",
+        RemoteFileEvent::Moved { .. } => "move",
     }
 }
 
