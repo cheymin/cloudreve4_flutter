@@ -30,10 +30,11 @@ pub struct ApiClient {
     refresh_token: RwLock<String>,
     refresh_state: Arc<Mutex<RefreshState>>,
     client: Client,
+    client_id: String,
 }
 
 impl ApiClient {
-    pub fn new(base_url: &str, access_token: &str, refresh_token: &str) -> Self {
+    pub fn new(base_url: &str, access_token: &str, refresh_token: &str, client_id: &str) -> Self {
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .build()
@@ -45,6 +46,7 @@ impl ApiClient {
             refresh_token: RwLock::new(refresh_token.to_string()),
             refresh_state: Arc::new(Mutex::new(RefreshState { refreshing: false, notify: Arc::new(tokio::sync::Notify::new()) })),
             client,
+            client_id: client_id.to_string(),
         }
     }
 
@@ -59,6 +61,10 @@ impl ApiClient {
 
     pub fn base_url(&self) -> &str {
         &self.base_url
+    }
+
+    pub fn client_id(&self) -> &str {
+        &self.client_id
     }
 
     pub async fn token(&self) -> String {
@@ -171,13 +177,18 @@ impl ApiClient {
 
     /// 发送带认证的请求，自动处理 401（刷新 token 后重试一次）
     /// request_builder 接收当前 token，返回 RequestBuilder
+    /// 所有请求自动附加 X-Cr-Client-Id header，服务端据此过滤 SSE 自身事件
     async fn send_with_auth_retry(
         &self,
         request_builder: impl Fn(String) -> reqwest::RequestBuilder,
     ) -> Result<serde_json::Value> {
+        let client_id = self.client_id.clone();
+
         // 第一次尝试
         let token = self.token().await;
-        let resp = request_builder(token).send().await?;
+        let resp = request_builder(token)
+            .header("X-Cr-Client-Id", &client_id)
+            .send().await?;
         let result = self.parse_response(resp).await;
 
         if let Err(SyncError::Auth(_)) = result {
@@ -185,7 +196,9 @@ impl ApiClient {
             self.refresh_access_token().await?;
             // 用新 token 重试
             let new_token = self.token().await;
-            let resp = request_builder(new_token).send().await?;
+            let resp = request_builder(new_token)
+                .header("X-Cr-Client-Id", &client_id)
+                .send().await?;
             return self.parse_response(resp).await;
         }
 

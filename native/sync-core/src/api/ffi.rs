@@ -62,6 +62,7 @@ fn config_from_ffi(ffi: SyncConfigFfi) -> crate::models::SyncConfig {
         excluded_paths: ffi.excluded_paths,
         selective_dirs: ffi.selective_dirs,
         data_dir: PathBuf::from(&ffi.data_dir),
+        client_id: uuid::Uuid::new_v4().to_string(),
     }
 }
 

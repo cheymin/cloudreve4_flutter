@@ -38,7 +38,7 @@ impl SyncEngine {
         let db_path_clone = db_path.clone();
         let db = Arc::new(tokio::task::spawn_blocking(move || SyncDb::open(&db_path_clone)).await??);
 
-        let api = Arc::new(ApiClient::new(&config.base_url, &config.access_token, &config.refresh_token));
+        let api = Arc::new(ApiClient::new(&config.base_url, &config.access_token, &config.refresh_token, &config.client_id));
 
         let conflict = ConflictResolver::new(config.conflict_strategy.clone());
 
@@ -156,7 +156,7 @@ impl SyncEngine {
     pub async fn run_continuous(&self) -> Result<()> {
         let event_handler = EventHandler::new(
             self.api.clone(),
-            uuid::Uuid::new_v4().to_string(),
+            self.api.client_id().to_string(),
         );
 
         let (local_root, remote_root) = {

@@ -40,6 +40,7 @@ pub struct SyncConfig {
     pub excluded_paths: Vec<String>,
     pub selective_dirs: Vec<String>,
     pub data_dir: PathBuf,
+    pub client_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
