@@ -399,9 +399,11 @@ return crate::api::ffi_types::SyncEventFfi::WorkerStarted{task_id: var_taskId, t
 10 => { let mut var_taskId = <String>::sse_decode(deserializer);
 let mut var_uploaded = <u32>::sse_decode(deserializer);
 let mut var_downloaded = <u32>::sse_decode(deserializer);
+let mut var_renamed = <u32>::sse_decode(deserializer);
+let mut var_moved = <u32>::sse_decode(deserializer);
 let mut var_failed = <u32>::sse_decode(deserializer);
 let mut var_durationMs = <u64>::sse_decode(deserializer);
-return crate::api::ffi_types::SyncEventFfi::WorkerCompleted{task_id: var_taskId, uploaded: var_uploaded, downloaded: var_downloaded, failed: var_failed, duration_ms: var_durationMs}; }
+return crate::api::ffi_types::SyncEventFfi::WorkerCompleted{task_id: var_taskId, uploaded: var_uploaded, downloaded: var_downloaded, renamed: var_renamed, moved: var_moved, failed: var_failed, duration_ms: var_durationMs}; }
 11 => { let mut var_taskId = <String>::sse_decode(deserializer);
 let mut var_message = <String>::sse_decode(deserializer);
 return crate::api::ffi_types::SyncEventFfi::WorkerFailed{task_id: var_taskId, message: var_message}; }
@@ -431,13 +433,15 @@ return crate::api::ffi_types::SyncStatusFfi{state: var_state, synced_files: var_
                     // Codec=Sse (Serialization based), see doc to use other codecs
                     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {let mut var_uploaded = <u32>::sse_decode(deserializer);
 let mut var_downloaded = <u32>::sse_decode(deserializer);
+let mut var_renamed = <u32>::sse_decode(deserializer);
+let mut var_moved = <u32>::sse_decode(deserializer);
 let mut var_conflicts = <u32>::sse_decode(deserializer);
 let mut var_failed = <u32>::sse_decode(deserializer);
 let mut var_skipped = <u32>::sse_decode(deserializer);
 let mut var_deletedLocal = <u32>::sse_decode(deserializer);
 let mut var_deletedRemote = <u32>::sse_decode(deserializer);
 let mut var_durationMs = <u64>::sse_decode(deserializer);
-return crate::api::ffi_types::SyncSummaryFfi{uploaded: var_uploaded, downloaded: var_downloaded, conflicts: var_conflicts, failed: var_failed, skipped: var_skipped, deleted_local: var_deletedLocal, deleted_remote: var_deletedRemote, duration_ms: var_durationMs};}
+return crate::api::ffi_types::SyncSummaryFfi{uploaded: var_uploaded, downloaded: var_downloaded, renamed: var_renamed, moved: var_moved, conflicts: var_conflicts, failed: var_failed, skipped: var_skipped, deleted_local: var_deletedLocal, deleted_remote: var_deletedRemote, duration_ms: var_durationMs};}
                 }
                 
                 impl SseDecode for crate::api::ffi_types::SyncTaskFfi {
@@ -652,10 +656,12 @@ task_id.into_into_dart().into_dart(),
 trigger.into_into_dart().into_dart(),
 upload_count.into_into_dart().into_dart(),
 download_count.into_into_dart().into_dart()].into_dart() }
-crate::api::ffi_types::SyncEventFfi::WorkerCompleted{task_id,uploaded,downloaded,failed,duration_ms} => { [10.into_dart(),
+crate::api::ffi_types::SyncEventFfi::WorkerCompleted{task_id,uploaded,downloaded,renamed,moved,failed,duration_ms} => { [10.into_dart(),
 task_id.into_into_dart().into_dart(),
 uploaded.into_into_dart().into_dart(),
 downloaded.into_into_dart().into_dart(),
+renamed.into_into_dart().into_dart(),
+moved.into_into_dart().into_dart(),
 failed.into_into_dart().into_dart(),
 duration_ms.into_into_dart().into_dart()].into_dart() }
 crate::api::ffi_types::SyncEventFfi::WorkerFailed{task_id,message} => { [11.into_dart(),
@@ -703,6 +709,8 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::ffi_types::SyncStatusFfi> for
                     [
                     self.uploaded.into_into_dart().into_dart(),
 self.downloaded.into_into_dart().into_dart(),
+self.renamed.into_into_dart().into_dart(),
+self.moved.into_into_dart().into_dart(),
 self.conflicts.into_into_dart().into_dart(),
 self.failed.into_into_dart().into_dart(),
 self.skipped.into_into_dart().into_dart(),
@@ -911,9 +919,11 @@ crate::api::ffi_types::SyncEventFfi::WorkerStarted{task_id,trigger,upload_count,
 <u32>::sse_encode(upload_count, serializer);
 <u32>::sse_encode(download_count, serializer);
  }
-crate::api::ffi_types::SyncEventFfi::WorkerCompleted{task_id,uploaded,downloaded,failed,duration_ms} => { <i32>::sse_encode(10, serializer); <String>::sse_encode(task_id, serializer);
+crate::api::ffi_types::SyncEventFfi::WorkerCompleted{task_id,uploaded,downloaded,renamed,moved,failed,duration_ms} => { <i32>::sse_encode(10, serializer); <String>::sse_encode(task_id, serializer);
 <u32>::sse_encode(uploaded, serializer);
 <u32>::sse_encode(downloaded, serializer);
+<u32>::sse_encode(renamed, serializer);
+<u32>::sse_encode(moved, serializer);
 <u32>::sse_encode(failed, serializer);
 <u64>::sse_encode(duration_ms, serializer);
  }
@@ -945,6 +955,8 @@ crate::api::ffi_types::SyncEventFfi::TaskItemUpdated{task_id,relative_path,actio
                     // Codec=Sse (Serialization based), see doc to use other codecs
                     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {<u32>::sse_encode(self.uploaded, serializer);
 <u32>::sse_encode(self.downloaded, serializer);
+<u32>::sse_encode(self.renamed, serializer);
+<u32>::sse_encode(self.moved, serializer);
 <u32>::sse_encode(self.conflicts, serializer);
 <u32>::sse_encode(self.failed, serializer);
 <u32>::sse_encode(self.skipped, serializer);

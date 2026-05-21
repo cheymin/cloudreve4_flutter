@@ -135,6 +135,8 @@ fn summary_to_ffi(s: crate::models::SyncSummary) -> SyncSummaryFfi {
     SyncSummaryFfi {
         uploaded: s.uploaded,
         downloaded: s.downloaded,
+        renamed: s.renamed,
+        moved: s.moved,
         conflicts: s.conflicts,
         failed: s.failed,
         skipped: s.skipped,

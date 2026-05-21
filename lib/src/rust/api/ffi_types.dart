@@ -106,7 +106,7 @@ final String dataDir;
  const factory SyncEventFfi.diskSpaceWarning({   required BigInt availableMb , }) = SyncEventFfi_DiskSpaceWarning;
  const factory SyncEventFfi.initialSyncComplete({   required SyncSummaryFfi summary , }) = SyncEventFfi_InitialSyncComplete;
  const factory SyncEventFfi.workerStarted({   required String taskId ,  required String trigger ,  required int uploadCount ,  required int downloadCount , }) = SyncEventFfi_WorkerStarted;
- const factory SyncEventFfi.workerCompleted({   required String taskId ,  required int uploaded ,  required int downloaded ,  required int failed ,  required BigInt durationMs , }) = SyncEventFfi_WorkerCompleted;
+ const factory SyncEventFfi.workerCompleted({   required String taskId ,  required int uploaded ,  required int downloaded ,  required int renamed ,  required int moved ,  required int failed ,  required BigInt durationMs , }) = SyncEventFfi_WorkerCompleted;
  const factory SyncEventFfi.workerFailed({   required String taskId ,  required String message , }) = SyncEventFfi_WorkerFailed;
  const factory SyncEventFfi.taskItemUpdated({   required String taskId ,  required String relativePath ,  required String action ,  required String status , }) = SyncEventFfi_TaskItemUpdated;
 
@@ -151,6 +151,8 @@ final String? errorMessage;
 class SyncSummaryFfi  {
                 final int uploaded;
 final int downloaded;
+final int renamed;
+final int moved;
 final int conflicts;
 final int failed;
 final int skipped;
@@ -158,14 +160,14 @@ final int deletedLocal;
 final int deletedRemote;
 final BigInt durationMs;
 
-                const SyncSummaryFfi({required this.uploaded ,required this.downloaded ,required this.conflicts ,required this.failed ,required this.skipped ,required this.deletedLocal ,required this.deletedRemote ,required this.durationMs ,});
+                const SyncSummaryFfi({required this.uploaded ,required this.downloaded ,required this.renamed ,required this.moved ,required this.conflicts ,required this.failed ,required this.skipped ,required this.deletedLocal ,required this.deletedRemote ,required this.durationMs ,});
 
                 
                 
 
                 
         @override
-        int get hashCode => uploaded.hashCode^downloaded.hashCode^conflicts.hashCode^failed.hashCode^skipped.hashCode^deletedLocal.hashCode^deletedRemote.hashCode^durationMs.hashCode;
+        int get hashCode => uploaded.hashCode^downloaded.hashCode^renamed.hashCode^moved.hashCode^conflicts.hashCode^failed.hashCode^skipped.hashCode^deletedLocal.hashCode^deletedRemote.hashCode^durationMs.hashCode;
         
 
                 
@@ -174,7 +176,7 @@ final BigInt durationMs;
             identical(this, other) ||
             other is SyncSummaryFfi &&
                 runtimeType == other.runtimeType
-                && uploaded == other.uploaded&& downloaded == other.downloaded&& conflicts == other.conflicts&& failed == other.failed&& skipped == other.skipped&& deletedLocal == other.deletedLocal&& deletedRemote == other.deletedRemote&& durationMs == other.durationMs;
+                && uploaded == other.uploaded&& downloaded == other.downloaded&& renamed == other.renamed&& moved == other.moved&& conflicts == other.conflicts&& failed == other.failed&& skipped == other.skipped&& deletedLocal == other.deletedLocal&& deletedRemote == other.deletedRemote&& durationMs == other.durationMs;
         
             }
 

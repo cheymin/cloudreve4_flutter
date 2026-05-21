@@ -46,6 +46,8 @@ pub struct SyncStatusFfi {
 pub struct SyncSummaryFfi {
     pub uploaded: u32,
     pub downloaded: u32,
+    pub renamed: u32,
+    pub moved: u32,
     pub conflicts: u32,
     pub failed: u32,
     pub skipped: u32,
@@ -94,6 +96,8 @@ pub enum SyncEventFfi {
         task_id: String,
         uploaded: u32,
         downloaded: u32,
+        renamed: u32,
+        moved: u32,
         failed: u32,
         duration_ms: u64,
     },

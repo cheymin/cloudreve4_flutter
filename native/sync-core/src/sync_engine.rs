@@ -289,7 +289,7 @@ impl SyncEngine {
 
                 // 定期心跳
                 _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
-                    tracing::debug!("持续同步心跳");
+                    tracing::trace!("持续同步心跳");
                     debounce.cleanup();
                 }
             }
@@ -307,9 +307,9 @@ impl SyncEngine {
     ) {
         let root_id = self.sync_root_id.clone().unwrap_or_default();
 
-        // 清理过期的 suppress 记录（超过 10 秒）
+        // 清理过期的 suppress 记录（超过 30 秒）
         let now = std::time::Instant::now();
-        self.suppress_paths.retain(|_, ts| now.duration_since(*ts).as_secs() < 10);
+        self.suppress_paths.retain(|_, ts| now.duration_since(*ts).as_secs() < 30);
 
         // === 第一步：提取 Renamed/Moved 事件，查 DB 构建操作 ===
         let mut rename_remote: Vec<RenameAction> = Vec::new();
@@ -324,7 +324,7 @@ impl SyncEngine {
                         if let Some((old_rel, new_rel)) = rel_pair(local_root, old_path, new_path) {
                             // 被远程操作抑制的 rename，跳过
                             if self.suppress_paths.contains_key(&old_rel) || self.suppress_paths.contains_key(&new_rel) {
-                                tracing::debug!("本地重命名被抑制(远程操作导致): {} -> {}", old_rel, new_rel);
+                                tracing::trace!("本地重命名被抑制(远程操作导致): {} -> {}", old_rel, new_rel);
                                 continue;
                             }
                             let new_name = new_path.file_name()
@@ -352,7 +352,7 @@ impl SyncEngine {
                         if let Some((old_rel, new_rel)) = rel_pair(local_root, old_path, new_path) {
                             // 被远程操作抑制的 move，跳过
                             if self.suppress_paths.contains_key(&old_rel) || self.suppress_paths.contains_key(&new_rel) {
-                                tracing::debug!("本地移动被抑制(远程操作导致): {} -> {}", old_rel, new_rel);
+                                tracing::trace!("本地移动被抑制(远程操作导致): {} -> {}", old_rel, new_rel);
                                 continue;
                             }
                             if let Ok(Some(mapping)) = self.db.get_file_mapping(&root_id, &old_rel).await {
@@ -570,15 +570,31 @@ impl SyncEngine {
 
             let scan_dirs = find_top_level_dirs(&dir_paths);
 
-            // 过滤掉包含已处理 rename/move 文件的目录，避免重复上传
+            // 过滤掉包含已处理 rename/move 文件的目录，以及被抑制的目录
             let all_handled: std::collections::HashSet<&String> = handled_old_rels.iter()
                 .chain(handled_new_rels.iter())
                 .collect();
             let filtered_scan_dirs: Vec<String> = scan_dirs.into_iter().filter(|dir| {
-                !all_handled.iter().any(|rel| {
+                // 被 rename/move 处理过的文件所在目录，跳过
+                if all_handled.iter().any(|rel| {
                     rel.starts_with(dir.as_str())
                         && rel.as_bytes().get(dir.len()) == Some(&b'/')
-                })
+                }) {
+                    return false;
+                }
+                // 被 suppress 的路径所在目录，跳过（远程操作导致的本地变更）
+                for entry in self.suppress_paths.iter() {
+                    let rel = entry.key();
+                    if rel.starts_with(dir.as_str())
+                        && rel.as_bytes().get(dir.len()) == Some(&b'/') {
+                        return false;
+                    }
+                    // 目录自身被抑制
+                    if dir.as_str() == rel.as_str() {
+                        return false;
+                    }
+                }
+                true
             }).collect();
 
             if !filtered_scan_dirs.is_empty() {
@@ -682,6 +698,16 @@ impl SyncEngine {
                 } else {
                     remote.clone()
                 };
+
+                // 抑制本地 debouncer 检测到下载文件的自触发事件
+                let now = std::time::Instant::now();
+                self.suppress_paths.insert(relative.clone(), now);
+                if let Some(parent) = std::path::PathBuf::from(&relative).parent() {
+                    let parent_rel = crate::utils::normalize_path(&parent.to_string_lossy());
+                    if !parent_rel.is_empty() {
+                        self.suppress_paths.insert(parent_rel, now);
+                    }
+                }
 
                 let plan = SyncPlan {
                     downloads: vec![SyncAction {

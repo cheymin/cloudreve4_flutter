@@ -108,6 +108,7 @@ impl Worker {
             match self.api.rename_file(&rename.remote_uri, &rename.new_name).await {
                 Ok(_) => {
                     tracing::info!("[{}] 远程重命名: {} -> {}", tid, rename.old_relative_path, rename.new_relative_path);
+                    summary.renamed += 1;
                     let new_remote_uri = {
                         let uri = &rename.remote_uri;
                         let last_slash = uri.trim_end_matches('/').rfind('/').unwrap_or(0);
@@ -131,6 +132,7 @@ impl Worker {
             match self.api.move_files(&[&mov.remote_uri], &mov.dst_remote_dir_uri, false).await {
                 Ok(_) => {
                     tracing::info!("[{}] 远程移动: {} -> {}", tid, mov.old_relative_path, mov.new_relative_path);
+                    summary.moved += 1;
                     let _ = self.db.update_file_mapping_path(
                         &root_id, &mov.old_relative_path, &mov.new_relative_path, &mov.dst_remote_dir_uri,
                     ).await;
@@ -504,20 +506,22 @@ impl Worker {
         let duration_ms = start.elapsed().as_millis() as u64;
         let final_status = if self.shutdown_token.is_cancelled() {
             WorkerStatus::Cancelled
-        } else if summary.conflicts > 0 && summary.uploaded + summary.downloaded == 0 {
+        } else if summary.failed > 0 && summary.uploaded + summary.downloaded + summary.renamed + summary.moved == 0 {
             WorkerStatus::Failed
         } else {
             WorkerStatus::Completed
         };
 
+        let completed_count = summary.uploaded + summary.downloaded + summary.renamed + summary.moved;
         let _ = self.db.finish_sync_task(
-            &tid, &final_status, summary.uploaded + summary.downloaded, summary.conflicts,
+            &tid, &final_status, completed_count, summary.failed,
         ).await;
 
         tracing::info!(
-            "[{}] Worker完成: 上传={}, 下载={}, 失败={}, 跳过={}, 删本地={}, 删远程={}, 耗时={}ms",
-            tid, summary.uploaded, summary.downloaded, summary.conflicts, summary.skipped,
-            summary.deleted_local, summary.deleted_remote, duration_ms,
+            "[{}] Worker完成: 上传={}, 下载={}, 失败={}, 跳过={}, 重命名={}, 移动={}, 删本地={}, 删远程={}, 冲突={}, 耗时={}ms",
+            tid, summary.uploaded, summary.downloaded, summary.failed, summary.skipped,
+            summary.renamed, summary.moved, summary.deleted_local, summary.deleted_remote,
+            summary.conflicts, duration_ms,
         );
 
         summary.duration_ms = duration_ms;
@@ -527,6 +531,8 @@ impl Worker {
             task_id: tid.clone(),
             uploaded: summary.uploaded,
             downloaded: summary.downloaded,
+            renamed: summary.renamed,
+            moved: summary.moved,
             failed: summary.failed,
             duration_ms,
         }).await;

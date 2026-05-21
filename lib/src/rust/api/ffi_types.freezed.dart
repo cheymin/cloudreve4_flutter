@@ -700,7 +700,7 @@ return taskItemUpdated(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( String newState)?  stateChanged,TResult Function( BigInt synced,  BigInt total,  String currentFile)?  progress,TResult Function( String localPath,  String remoteUri)?  fileUploaded,TResult Function( String localPath,  String remoteUri)?  fileDownloaded,TResult Function( String localPath,  String conflictType)?  conflictDetected,TResult Function( String message,  bool recoverable)?  error,TResult Function()?  tokenExpired,TResult Function( BigInt availableMb)?  diskSpaceWarning,TResult Function( SyncSummaryFfi summary)?  initialSyncComplete,TResult Function( String taskId,  String trigger,  int uploadCount,  int downloadCount)?  workerStarted,TResult Function( String taskId,  int uploaded,  int downloaded,  int failed,  BigInt durationMs)?  workerCompleted,TResult Function( String taskId,  String message)?  workerFailed,TResult Function( String taskId,  String relativePath,  String action,  String status)?  taskItemUpdated,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( String newState)?  stateChanged,TResult Function( BigInt synced,  BigInt total,  String currentFile)?  progress,TResult Function( String localPath,  String remoteUri)?  fileUploaded,TResult Function( String localPath,  String remoteUri)?  fileDownloaded,TResult Function( String localPath,  String conflictType)?  conflictDetected,TResult Function( String message,  bool recoverable)?  error,TResult Function()?  tokenExpired,TResult Function( BigInt availableMb)?  diskSpaceWarning,TResult Function( SyncSummaryFfi summary)?  initialSyncComplete,TResult Function( String taskId,  String trigger,  int uploadCount,  int downloadCount)?  workerStarted,TResult Function( String taskId,  int uploaded,  int downloaded,  int renamed,  int moved,  int failed,  BigInt durationMs)?  workerCompleted,TResult Function( String taskId,  String message)?  workerFailed,TResult Function( String taskId,  String relativePath,  String action,  String status)?  taskItemUpdated,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case SyncEventFfi_StateChanged() when stateChanged != null:
 return stateChanged(_that.newState);case SyncEventFfi_Progress() when progress != null:
@@ -713,7 +713,7 @@ return tokenExpired();case SyncEventFfi_DiskSpaceWarning() when diskSpaceWarning
 return diskSpaceWarning(_that.availableMb);case SyncEventFfi_InitialSyncComplete() when initialSyncComplete != null:
 return initialSyncComplete(_that.summary);case SyncEventFfi_WorkerStarted() when workerStarted != null:
 return workerStarted(_that.taskId,_that.trigger,_that.uploadCount,_that.downloadCount);case SyncEventFfi_WorkerCompleted() when workerCompleted != null:
-return workerCompleted(_that.taskId,_that.uploaded,_that.downloaded,_that.failed,_that.durationMs);case SyncEventFfi_WorkerFailed() when workerFailed != null:
+return workerCompleted(_that.taskId,_that.uploaded,_that.downloaded,_that.renamed,_that.moved,_that.failed,_that.durationMs);case SyncEventFfi_WorkerFailed() when workerFailed != null:
 return workerFailed(_that.taskId,_that.message);case SyncEventFfi_TaskItemUpdated() when taskItemUpdated != null:
 return taskItemUpdated(_that.taskId,_that.relativePath,_that.action,_that.status);case _:
   return orElse();
@@ -733,7 +733,7 @@ return taskItemUpdated(_that.taskId,_that.relativePath,_that.action,_that.status
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( String newState)  stateChanged,required TResult Function( BigInt synced,  BigInt total,  String currentFile)  progress,required TResult Function( String localPath,  String remoteUri)  fileUploaded,required TResult Function( String localPath,  String remoteUri)  fileDownloaded,required TResult Function( String localPath,  String conflictType)  conflictDetected,required TResult Function( String message,  bool recoverable)  error,required TResult Function()  tokenExpired,required TResult Function( BigInt availableMb)  diskSpaceWarning,required TResult Function( SyncSummaryFfi summary)  initialSyncComplete,required TResult Function( String taskId,  String trigger,  int uploadCount,  int downloadCount)  workerStarted,required TResult Function( String taskId,  int uploaded,  int downloaded,  int failed,  BigInt durationMs)  workerCompleted,required TResult Function( String taskId,  String message)  workerFailed,required TResult Function( String taskId,  String relativePath,  String action,  String status)  taskItemUpdated,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( String newState)  stateChanged,required TResult Function( BigInt synced,  BigInt total,  String currentFile)  progress,required TResult Function( String localPath,  String remoteUri)  fileUploaded,required TResult Function( String localPath,  String remoteUri)  fileDownloaded,required TResult Function( String localPath,  String conflictType)  conflictDetected,required TResult Function( String message,  bool recoverable)  error,required TResult Function()  tokenExpired,required TResult Function( BigInt availableMb)  diskSpaceWarning,required TResult Function( SyncSummaryFfi summary)  initialSyncComplete,required TResult Function( String taskId,  String trigger,  int uploadCount,  int downloadCount)  workerStarted,required TResult Function( String taskId,  int uploaded,  int downloaded,  int renamed,  int moved,  int failed,  BigInt durationMs)  workerCompleted,required TResult Function( String taskId,  String message)  workerFailed,required TResult Function( String taskId,  String relativePath,  String action,  String status)  taskItemUpdated,}) {final _that = this;
 switch (_that) {
 case SyncEventFfi_StateChanged():
 return stateChanged(_that.newState);case SyncEventFfi_Progress():
@@ -746,7 +746,7 @@ return tokenExpired();case SyncEventFfi_DiskSpaceWarning():
 return diskSpaceWarning(_that.availableMb);case SyncEventFfi_InitialSyncComplete():
 return initialSyncComplete(_that.summary);case SyncEventFfi_WorkerStarted():
 return workerStarted(_that.taskId,_that.trigger,_that.uploadCount,_that.downloadCount);case SyncEventFfi_WorkerCompleted():
-return workerCompleted(_that.taskId,_that.uploaded,_that.downloaded,_that.failed,_that.durationMs);case SyncEventFfi_WorkerFailed():
+return workerCompleted(_that.taskId,_that.uploaded,_that.downloaded,_that.renamed,_that.moved,_that.failed,_that.durationMs);case SyncEventFfi_WorkerFailed():
 return workerFailed(_that.taskId,_that.message);case SyncEventFfi_TaskItemUpdated():
 return taskItemUpdated(_that.taskId,_that.relativePath,_that.action,_that.status);}
 }
@@ -762,7 +762,7 @@ return taskItemUpdated(_that.taskId,_that.relativePath,_that.action,_that.status
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( String newState)?  stateChanged,TResult? Function( BigInt synced,  BigInt total,  String currentFile)?  progress,TResult? Function( String localPath,  String remoteUri)?  fileUploaded,TResult? Function( String localPath,  String remoteUri)?  fileDownloaded,TResult? Function( String localPath,  String conflictType)?  conflictDetected,TResult? Function( String message,  bool recoverable)?  error,TResult? Function()?  tokenExpired,TResult? Function( BigInt availableMb)?  diskSpaceWarning,TResult? Function( SyncSummaryFfi summary)?  initialSyncComplete,TResult? Function( String taskId,  String trigger,  int uploadCount,  int downloadCount)?  workerStarted,TResult? Function( String taskId,  int uploaded,  int downloaded,  int failed,  BigInt durationMs)?  workerCompleted,TResult? Function( String taskId,  String message)?  workerFailed,TResult? Function( String taskId,  String relativePath,  String action,  String status)?  taskItemUpdated,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( String newState)?  stateChanged,TResult? Function( BigInt synced,  BigInt total,  String currentFile)?  progress,TResult? Function( String localPath,  String remoteUri)?  fileUploaded,TResult? Function( String localPath,  String remoteUri)?  fileDownloaded,TResult? Function( String localPath,  String conflictType)?  conflictDetected,TResult? Function( String message,  bool recoverable)?  error,TResult? Function()?  tokenExpired,TResult? Function( BigInt availableMb)?  diskSpaceWarning,TResult? Function( SyncSummaryFfi summary)?  initialSyncComplete,TResult? Function( String taskId,  String trigger,  int uploadCount,  int downloadCount)?  workerStarted,TResult? Function( String taskId,  int uploaded,  int downloaded,  int renamed,  int moved,  int failed,  BigInt durationMs)?  workerCompleted,TResult? Function( String taskId,  String message)?  workerFailed,TResult? Function( String taskId,  String relativePath,  String action,  String status)?  taskItemUpdated,}) {final _that = this;
 switch (_that) {
 case SyncEventFfi_StateChanged() when stateChanged != null:
 return stateChanged(_that.newState);case SyncEventFfi_Progress() when progress != null:
@@ -775,7 +775,7 @@ return tokenExpired();case SyncEventFfi_DiskSpaceWarning() when diskSpaceWarning
 return diskSpaceWarning(_that.availableMb);case SyncEventFfi_InitialSyncComplete() when initialSyncComplete != null:
 return initialSyncComplete(_that.summary);case SyncEventFfi_WorkerStarted() when workerStarted != null:
 return workerStarted(_that.taskId,_that.trigger,_that.uploadCount,_that.downloadCount);case SyncEventFfi_WorkerCompleted() when workerCompleted != null:
-return workerCompleted(_that.taskId,_that.uploaded,_that.downloaded,_that.failed,_that.durationMs);case SyncEventFfi_WorkerFailed() when workerFailed != null:
+return workerCompleted(_that.taskId,_that.uploaded,_that.downloaded,_that.renamed,_that.moved,_that.failed,_that.durationMs);case SyncEventFfi_WorkerFailed() when workerFailed != null:
 return workerFailed(_that.taskId,_that.message);case SyncEventFfi_TaskItemUpdated() when taskItemUpdated != null:
 return taskItemUpdated(_that.taskId,_that.relativePath,_that.action,_that.status);case _:
   return null;
@@ -1433,12 +1433,14 @@ as int,
 
 
 class SyncEventFfi_WorkerCompleted extends SyncEventFfi {
-  const SyncEventFfi_WorkerCompleted({required this.taskId, required this.uploaded, required this.downloaded, required this.failed, required this.durationMs}): super._();
+  const SyncEventFfi_WorkerCompleted({required this.taskId, required this.uploaded, required this.downloaded, required this.renamed, required this.moved, required this.failed, required this.durationMs}): super._();
   
 
  final  String taskId;
  final  int uploaded;
  final  int downloaded;
+ final  int renamed;
+ final  int moved;
  final  int failed;
  final  BigInt durationMs;
 
@@ -1452,16 +1454,16 @@ $SyncEventFfi_WorkerCompletedCopyWith<SyncEventFfi_WorkerCompleted> get copyWith
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is SyncEventFfi_WorkerCompleted&&(identical(other.taskId, taskId) || other.taskId == taskId)&&(identical(other.uploaded, uploaded) || other.uploaded == uploaded)&&(identical(other.downloaded, downloaded) || other.downloaded == downloaded)&&(identical(other.failed, failed) || other.failed == failed)&&(identical(other.durationMs, durationMs) || other.durationMs == durationMs));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is SyncEventFfi_WorkerCompleted&&(identical(other.taskId, taskId) || other.taskId == taskId)&&(identical(other.uploaded, uploaded) || other.uploaded == uploaded)&&(identical(other.downloaded, downloaded) || other.downloaded == downloaded)&&(identical(other.renamed, renamed) || other.renamed == renamed)&&(identical(other.moved, moved) || other.moved == moved)&&(identical(other.failed, failed) || other.failed == failed)&&(identical(other.durationMs, durationMs) || other.durationMs == durationMs));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,taskId,uploaded,downloaded,failed,durationMs);
+int get hashCode => Object.hash(runtimeType,taskId,uploaded,downloaded,renamed,moved,failed,durationMs);
 
 @override
 String toString() {
-  return 'SyncEventFfi.workerCompleted(taskId: $taskId, uploaded: $uploaded, downloaded: $downloaded, failed: $failed, durationMs: $durationMs)';
+  return 'SyncEventFfi.workerCompleted(taskId: $taskId, uploaded: $uploaded, downloaded: $downloaded, renamed: $renamed, moved: $moved, failed: $failed, durationMs: $durationMs)';
 }
 
 
@@ -1472,7 +1474,7 @@ abstract mixin class $SyncEventFfi_WorkerCompletedCopyWith<$Res> implements $Syn
   factory $SyncEventFfi_WorkerCompletedCopyWith(SyncEventFfi_WorkerCompleted value, $Res Function(SyncEventFfi_WorkerCompleted) _then) = _$SyncEventFfi_WorkerCompletedCopyWithImpl;
 @useResult
 $Res call({
- String taskId, int uploaded, int downloaded, int failed, BigInt durationMs
+ String taskId, int uploaded, int downloaded, int renamed, int moved, int failed, BigInt durationMs
 });
 
 
@@ -1489,11 +1491,13 @@ class _$SyncEventFfi_WorkerCompletedCopyWithImpl<$Res>
 
 /// Create a copy of SyncEventFfi
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? taskId = null,Object? uploaded = null,Object? downloaded = null,Object? failed = null,Object? durationMs = null,}) {
+@pragma('vm:prefer-inline') $Res call({Object? taskId = null,Object? uploaded = null,Object? downloaded = null,Object? renamed = null,Object? moved = null,Object? failed = null,Object? durationMs = null,}) {
   return _then(SyncEventFfi_WorkerCompleted(
 taskId: null == taskId ? _self.taskId : taskId // ignore: cast_nullable_to_non_nullable
 as String,uploaded: null == uploaded ? _self.uploaded : uploaded // ignore: cast_nullable_to_non_nullable
 as int,downloaded: null == downloaded ? _self.downloaded : downloaded // ignore: cast_nullable_to_non_nullable
+as int,renamed: null == renamed ? _self.renamed : renamed // ignore: cast_nullable_to_non_nullable
+as int,moved: null == moved ? _self.moved : moved // ignore: cast_nullable_to_non_nullable
 as int,failed: null == failed ? _self.failed : failed // ignore: cast_nullable_to_non_nullable
 as int,durationMs: null == durationMs ? _self.durationMs : durationMs // ignore: cast_nullable_to_non_nullable
 as BigInt,

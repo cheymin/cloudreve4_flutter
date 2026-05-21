@@ -53,6 +53,8 @@ class SyncInitialSyncComplete extends SyncEventModel {
 class SyncSummaryModel {
   final int uploaded;
   final int downloaded;
+  final int renamed;
+  final int moved;
   final int conflicts;
   final int failed;
   final int skipped;
@@ -63,6 +65,8 @@ class SyncSummaryModel {
   const SyncSummaryModel({
     this.uploaded = 0,
     this.downloaded = 0,
+    this.renamed = 0,
+    this.moved = 0,
     this.conflicts = 0,
     this.failed = 0,
     this.skipped = 0,
@@ -75,6 +79,8 @@ class SyncSummaryModel {
     return SyncSummaryModel(
       uploaded: f.uploaded,
       downloaded: f.downloaded,
+      renamed: f.renamed,
+      moved: f.moved,
       conflicts: f.conflicts,
       failed: f.failed,
       skipped: f.skipped,

@@ -197,6 +197,8 @@ impl Default for TransferConfig {
 pub struct SyncSummary {
     pub uploaded: u32,
     pub downloaded: u32,
+    pub renamed: u32,
+    pub moved: u32,
     pub conflicts: u32,
     pub failed: u32,
     pub skipped: u32,

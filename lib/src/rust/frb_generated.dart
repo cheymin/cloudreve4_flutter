@@ -780,7 +780,7 @@ case 6: return SyncEventFfi_TokenExpired();
 case 7: return SyncEventFfi_DiskSpaceWarning(availableMb: dco_decode_u_64(raw[1]),);
 case 8: return SyncEventFfi_InitialSyncComplete(summary: dco_decode_box_autoadd_sync_summary_ffi(raw[1]),);
 case 9: return SyncEventFfi_WorkerStarted(taskId: dco_decode_String(raw[1]),trigger: dco_decode_String(raw[2]),uploadCount: dco_decode_u_32(raw[3]),downloadCount: dco_decode_u_32(raw[4]),);
-case 10: return SyncEventFfi_WorkerCompleted(taskId: dco_decode_String(raw[1]),uploaded: dco_decode_u_32(raw[2]),downloaded: dco_decode_u_32(raw[3]),failed: dco_decode_u_32(raw[4]),durationMs: dco_decode_u_64(raw[5]),);
+case 10: return SyncEventFfi_WorkerCompleted(taskId: dco_decode_String(raw[1]),uploaded: dco_decode_u_32(raw[2]),downloaded: dco_decode_u_32(raw[3]),renamed: dco_decode_u_32(raw[4]),moved: dco_decode_u_32(raw[5]),failed: dco_decode_u_32(raw[6]),durationMs: dco_decode_u_64(raw[7]),);
 case 11: return SyncEventFfi_WorkerFailed(taskId: dco_decode_String(raw[1]),message: dco_decode_String(raw[2]),);
 case 12: return SyncEventFfi_TaskItemUpdated(taskId: dco_decode_String(raw[1]),relativePath: dco_decode_String(raw[2]),action: dco_decode_String(raw[3]),status: dco_decode_String(raw[4]),);
                 default: throw Exception("unreachable");
@@ -801,15 +801,17 @@ errorMessage: dco_decode_opt_String(arr[8]),); }
 
 @protected SyncSummaryFfi dco_decode_sync_summary_ffi(dynamic raw){ // Codec=Dco (DartCObject based), see doc to use other codecs
 final arr = raw as List<dynamic>;
-                if (arr.length != 8) throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
+                if (arr.length != 10) throw Exception('unexpected arr length: expect 10 but see ${arr.length}');
                 return SyncSummaryFfi(uploaded: dco_decode_u_32(arr[0]),
 downloaded: dco_decode_u_32(arr[1]),
-conflicts: dco_decode_u_32(arr[2]),
-failed: dco_decode_u_32(arr[3]),
-skipped: dco_decode_u_32(arr[4]),
-deletedLocal: dco_decode_u_32(arr[5]),
-deletedRemote: dco_decode_u_32(arr[6]),
-durationMs: dco_decode_u_64(arr[7]),); }
+renamed: dco_decode_u_32(arr[2]),
+moved: dco_decode_u_32(arr[3]),
+conflicts: dco_decode_u_32(arr[4]),
+failed: dco_decode_u_32(arr[5]),
+skipped: dco_decode_u_32(arr[6]),
+deletedLocal: dco_decode_u_32(arr[7]),
+deletedRemote: dco_decode_u_32(arr[8]),
+durationMs: dco_decode_u_64(arr[9]),); }
 
 @protected SyncTaskFfi dco_decode_sync_task_ffi(dynamic raw){ // Codec=Dco (DartCObject based), see doc to use other codecs
 final arr = raw as List<dynamic>;
@@ -981,9 +983,11 @@ var var_downloadCount = sse_decode_u_32(deserializer);
 return SyncEventFfi_WorkerStarted(taskId: var_taskId, trigger: var_trigger, uploadCount: var_uploadCount, downloadCount: var_downloadCount);case 10: var var_taskId = sse_decode_String(deserializer);
 var var_uploaded = sse_decode_u_32(deserializer);
 var var_downloaded = sse_decode_u_32(deserializer);
+var var_renamed = sse_decode_u_32(deserializer);
+var var_moved = sse_decode_u_32(deserializer);
 var var_failed = sse_decode_u_32(deserializer);
 var var_durationMs = sse_decode_u_64(deserializer);
-return SyncEventFfi_WorkerCompleted(taskId: var_taskId, uploaded: var_uploaded, downloaded: var_downloaded, failed: var_failed, durationMs: var_durationMs);case 11: var var_taskId = sse_decode_String(deserializer);
+return SyncEventFfi_WorkerCompleted(taskId: var_taskId, uploaded: var_uploaded, downloaded: var_downloaded, renamed: var_renamed, moved: var_moved, failed: var_failed, durationMs: var_durationMs);case 11: var var_taskId = sse_decode_String(deserializer);
 var var_message = sse_decode_String(deserializer);
 return SyncEventFfi_WorkerFailed(taskId: var_taskId, message: var_message);case 12: var var_taskId = sse_decode_String(deserializer);
 var var_relativePath = sse_decode_String(deserializer);
@@ -1007,13 +1011,15 @@ return SyncStatusFfi(state: var_state, syncedFiles: var_syncedFiles, totalFiles:
 @protected SyncSummaryFfi sse_decode_sync_summary_ffi(SseDeserializer deserializer){ // Codec=Sse (Serialization based), see doc to use other codecs
 var var_uploaded = sse_decode_u_32(deserializer);
 var var_downloaded = sse_decode_u_32(deserializer);
+var var_renamed = sse_decode_u_32(deserializer);
+var var_moved = sse_decode_u_32(deserializer);
 var var_conflicts = sse_decode_u_32(deserializer);
 var var_failed = sse_decode_u_32(deserializer);
 var var_skipped = sse_decode_u_32(deserializer);
 var var_deletedLocal = sse_decode_u_32(deserializer);
 var var_deletedRemote = sse_decode_u_32(deserializer);
 var var_durationMs = sse_decode_u_64(deserializer);
-return SyncSummaryFfi(uploaded: var_uploaded, downloaded: var_downloaded, conflicts: var_conflicts, failed: var_failed, skipped: var_skipped, deletedLocal: var_deletedLocal, deletedRemote: var_deletedRemote, durationMs: var_durationMs); }
+return SyncSummaryFfi(uploaded: var_uploaded, downloaded: var_downloaded, renamed: var_renamed, moved: var_moved, conflicts: var_conflicts, failed: var_failed, skipped: var_skipped, deletedLocal: var_deletedLocal, deletedRemote: var_deletedRemote, durationMs: var_durationMs); }
 
 @protected SyncTaskFfi sse_decode_sync_task_ffi(SseDeserializer deserializer){ // Codec=Sse (Serialization based), see doc to use other codecs
 var var_id = sse_decode_String(deserializer);
@@ -1165,9 +1171,11 @@ case SyncEventFfi_WorkerStarted(taskId: final taskId,trigger: final trigger,uplo
 sse_encode_String(trigger, serializer);
 sse_encode_u_32(uploadCount, serializer);
 sse_encode_u_32(downloadCount, serializer);
-case SyncEventFfi_WorkerCompleted(taskId: final taskId,uploaded: final uploaded,downloaded: final downloaded,failed: final failed,durationMs: final durationMs): sse_encode_i_32(10, serializer); sse_encode_String(taskId, serializer);
+case SyncEventFfi_WorkerCompleted(taskId: final taskId,uploaded: final uploaded,downloaded: final downloaded,renamed: final renamed,moved: final moved,failed: final failed,durationMs: final durationMs): sse_encode_i_32(10, serializer); sse_encode_String(taskId, serializer);
 sse_encode_u_32(uploaded, serializer);
 sse_encode_u_32(downloaded, serializer);
+sse_encode_u_32(renamed, serializer);
+sse_encode_u_32(moved, serializer);
 sse_encode_u_32(failed, serializer);
 sse_encode_u_64(durationMs, serializer);
 case SyncEventFfi_WorkerFailed(taskId: final taskId,message: final message): sse_encode_i_32(11, serializer); sse_encode_String(taskId, serializer);
@@ -1193,6 +1201,8 @@ sse_encode_opt_String(self.errorMessage, serializer);
 @protected void sse_encode_sync_summary_ffi(SyncSummaryFfi self, SseSerializer serializer){ // Codec=Sse (Serialization based), see doc to use other codecs
 sse_encode_u_32(self.uploaded, serializer);
 sse_encode_u_32(self.downloaded, serializer);
+sse_encode_u_32(self.renamed, serializer);
+sse_encode_u_32(self.moved, serializer);
 sse_encode_u_32(self.conflicts, serializer);
 sse_encode_u_32(self.failed, serializer);
 sse_encode_u_32(self.skipped, serializer);
