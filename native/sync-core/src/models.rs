@@ -49,6 +49,7 @@ pub enum SyncMode {
     UploadOnly,
     DownloadOnly,
     Album,
+    MirrorWcf,
 }
 
 // ===== 文件条目 =====
@@ -498,6 +499,7 @@ pub enum TaskActionType {
     MkdirRemote,
     MkdirLocal,
     ConflictResolve,
+    CreatePlaceholder,
 }
 
 impl TaskActionType {
@@ -512,6 +514,7 @@ impl TaskActionType {
             TaskActionType::MkdirRemote => "mkdir_remote",
             TaskActionType::MkdirLocal => "mkdir_local",
             TaskActionType::ConflictResolve => "conflict_resolve",
+            TaskActionType::CreatePlaceholder => "create_placeholder",
         }
     }
 
@@ -531,6 +534,7 @@ impl std::str::FromStr for TaskActionType {
             "mkdir_remote" => Ok(TaskActionType::MkdirRemote),
             "mkdir_local" => Ok(TaskActionType::MkdirLocal),
             "conflict_resolve" => Ok(TaskActionType::ConflictResolve),
+            "create_placeholder" => Ok(TaskActionType::CreatePlaceholder),
             _ => Err(()),
         }
     }

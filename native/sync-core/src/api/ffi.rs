@@ -37,6 +37,7 @@ fn config_from_ffi(ffi: SyncConfigFfi) -> crate::models::SyncConfig {
         "upload_only" => SyncMode::UploadOnly,
         "download_only" => SyncMode::DownloadOnly,
         "album" => SyncMode::Album,
+        "mirror_wcf" => SyncMode::MirrorWcf,
         _ => SyncMode::Full,
     };
 
@@ -80,6 +81,7 @@ fn config_to_ffi(c: &crate::models::SyncConfig) -> SyncConfigFfi {
         SyncMode::UploadOnly => "upload_only",
         SyncMode::DownloadOnly => "download_only",
         SyncMode::Album => "album",
+        SyncMode::MirrorWcf => "mirror_wcf",
     };
 
     let conflict_strategy = match c.conflict_strategy {
@@ -297,6 +299,23 @@ pub async fn dispose_sync_engine() -> Result<(), SyncErrorFfi> {
     let engine = get_engine()?;
     engine.stop().await.map_err(error_to_ffi)?;
     tracing::info!("同步引擎已停止");
+    Ok(())
+}
+
+/// 进程退出前同步清理（WCF 模式下必须调用，确保占位符释放）
+/// 此函数是同步的，不依赖 tokio runtime，可安全在 exit(0) 前调用
+#[frb]
+pub fn sync_shutdown() -> Result<(), SyncErrorFfi> {
+    tracing::debug!("[FFI] sync_shutdown ←");
+    #[cfg(feature = "windows-cfapi")]
+    {
+        let engine = match ENGINE.get() {
+            Some(e) => e,
+            None => return Ok(()),
+        };
+        engine.cleanup_wcf();
+    }
+    tracing::info!("同步引擎已同步清理");
     Ok(())
 }
 

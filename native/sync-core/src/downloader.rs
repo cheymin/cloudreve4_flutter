@@ -213,3 +213,96 @@ pub async fn stream_to_file(
     file.flush().await?;
     Ok(())
 }
+
+/// 从 URL 下载文件到指定路径（WCF 水合使用）
+pub async fn download_file_from_url(
+    download_url: &str,
+    local_path: &std::path::Path,
+    expected_size: u64,
+    bandwidth_limit: Option<u64>,
+) -> Result<()> {
+    let client = reqwest::Client::new();
+    let mut request = client.get(download_url);
+
+    // 断点续传
+    let resume_offset = if local_path.exists() {
+        let metadata = tokio::fs::metadata(local_path).await?;
+        if metadata.len() > 0 && metadata.len() < expected_size {
+            request = request.header("Range", format!("bytes={}-", metadata.len()));
+            metadata.len()
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+
+    let resp = request.send().await.map_err(|e| SyncError::Network(e.to_string()))?;
+
+    if !resp.status().is_success() && resp.status().as_u16() != 206 {
+        return Err(SyncError::Network(format!("下载失败: HTTP {}", resp.status())));
+    }
+
+    let tmp_path = local_path.with_extension(format!(
+        "{}.sync_tmp",
+        local_path.extension().map(|e| e.to_string_lossy().to_string()).unwrap_or_default()
+    ));
+
+    stream_to_file(resp, &tmp_path, bandwidth_limit, resume_offset).await?;
+
+    // 重命名临时文件为最终文件
+    if tmp_path.exists() {
+        let _ = std::fs::remove_file(local_path);
+        std::fs::rename(&tmp_path, local_path)
+            .map_err(|e| SyncError::FileSystem(format!("重命名临时文件失败: {}", e)))?;
+    }
+
+    Ok(())
+}
+
+/// 从 URL 下载数据到内存缓冲区（WCF CfExecute 水合使用）
+pub async fn download_to_buffer(
+    api: &ApiClient,
+    download_url: &str,
+    bandwidth_limit: Option<u64>,
+) -> Result<Vec<u8>> {
+    use futures_util::StreamExt;
+
+    let resp = api.stream_download(download_url, 0).await?;
+
+    if !resp.status().is_success() {
+        return Err(SyncError::Network(format!("下载失败: HTTP {}", resp.status())));
+    }
+
+    let content_length = resp.content_length();
+    let mut buffer = Vec::with_capacity(content_length.unwrap_or(0) as usize);
+    let mut stream = resp.bytes_stream();
+    let mut total_bytes: u64 = 0;
+
+    match bandwidth_limit {
+        None => {
+            while let Some(chunk) = stream.next().await {
+                let chunk = chunk.map_err(|e| SyncError::Network(e.to_string()))?;
+                buffer.extend_from_slice(&chunk);
+            }
+        }
+        Some(limit) => {
+            let transfer_start = std::time::Instant::now();
+            while let Some(chunk) = stream.next().await {
+                let chunk = chunk.map_err(|e| SyncError::Network(e.to_string()))?;
+                total_bytes += chunk.len() as u64;
+                buffer.extend_from_slice(&chunk);
+
+                let expected_elapsed = std::time::Duration::from_micros(
+                    total_bytes * 1_000_000 / limit
+                );
+                let actual_elapsed = transfer_start.elapsed();
+                if expected_elapsed > actual_elapsed {
+                    tokio::time::sleep(expected_elapsed - actual_elapsed).await;
+                }
+            }
+        }
+    }
+
+    Ok(buffer)
+}

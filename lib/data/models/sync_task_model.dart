@@ -76,6 +76,7 @@ class SyncTaskItemModel {
         'mkdir_remote' => '创建远程目录',
         'mkdir_local' => '创建本地目录',
         'conflict_resolve' => '冲突解决',
+        'create_placeholder' => '创建占位符',
         _ => actionType,
       };
 

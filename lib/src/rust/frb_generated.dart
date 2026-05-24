@@ -67,7 +67,7 @@ class RustSyncApi
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => -1726594987;
+  int get rustContentHash => 264517153;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -131,6 +131,8 @@ abstract class RustSyncApiApi extends BaseApi {
     required List<String> albumPaths,
     required String remoteDcimUri,
   });
+
+  Future<void> crateApiFfiSyncShutdown();
 
   Future<void> crateApiFfiUpdateSyncConfig({required SyncConfigFfi config});
 
@@ -777,6 +779,33 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
       );
 
   @override
+  Future<void> crateApiFfiSyncShutdown() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 23,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_sync_error_ffi,
+        ),
+        constMeta: kCrateApiFfiSyncShutdownConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiFfiSyncShutdownConstMeta =>
+      const TaskConstMeta(debugName: "sync_shutdown", argNames: []);
+
+  @override
   Future<void> crateApiFfiUpdateSyncConfig({required SyncConfigFfi config}) {
     return handler.executeNormal(
       NormalTask(
@@ -786,7 +815,7 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 23,
+            funcId: 24,
             port: port_,
           );
         },
@@ -817,7 +846,7 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 24,
+            funcId: 25,
             port: port_,
           );
         },

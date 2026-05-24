@@ -83,7 +83,7 @@ impl ApiClient {
 
     /// 带并发去重的 token 刷新
     /// 多个任务同时遇到 401 时，只有一个执行刷新，其他等待刷新完成后自动获取新 token
-    async fn refresh_access_token(&self) -> Result<()> {
+    pub async fn refresh_access_token(&self) -> Result<()> {
         let mut state = self.refresh_state.lock().await;
 
         if state.refreshing {

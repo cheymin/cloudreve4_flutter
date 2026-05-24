@@ -14,6 +14,8 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
+#[cfg(feature = "windows-cfapi")]
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 pub struct SyncEngine {
@@ -32,6 +34,18 @@ pub struct SyncEngine {
     event_sink: Arc<EventSink>,
     /// 远程操作导致的本地路径变化，抑制本地 debouncer 自触发事件
     suppress_paths: Arc<DashMap<String, std::time::Instant>>,
+    /// WCF 平台适配器（仅 MirrorWcf 模式下初始化）
+    #[cfg(feature = "windows-cfapi")]
+    platform_adapter: std::sync::Mutex<Option<Arc<crate::platform_wcf::WcfPlatformAdapter>>>,
+    /// WCF FETCH_DATA 回调接收端（在适配器初始化时提取）
+    #[cfg(feature = "windows-cfapi")]
+    wcf_fetch_rx: std::sync::Mutex<Option<mpsc::Receiver<sync_windows::FetchDataRequest>>>,
+    /// WCF 水合缓存：uri → 已下载的完整文件数据，避免同一文件重复下载
+    #[cfg(feature = "windows-cfapi")]
+    hydration_cache: Arc<DashMap<String, (Vec<u8>, std::time::Instant)>>,
+    /// 缓存的本地同步根路径（WCF 清理时同步读取，避免 await）
+    #[cfg(feature = "windows-cfapi")]
+    cached_local_root: std::sync::Mutex<std::path::PathBuf>,
 }
 
 impl SyncEngine {
@@ -84,6 +98,14 @@ impl SyncEngine {
             ensured_dirs,
             event_sink,
             suppress_paths,
+            #[cfg(feature = "windows-cfapi")]
+            platform_adapter: std::sync::Mutex::new(None),
+            #[cfg(feature = "windows-cfapi")]
+            wcf_fetch_rx: std::sync::Mutex::new(None),
+            #[cfg(feature = "windows-cfapi")]
+            hydration_cache: Arc::new(DashMap::new()),
+            #[cfg(feature = "windows-cfapi")]
+            cached_local_root: std::sync::Mutex::new(std::path::PathBuf::new()),
         })
     }
 
@@ -149,6 +171,26 @@ impl SyncEngine {
         let worker_config = self.snapshot_worker_config().await;
         let conflict_resolver = self.conflict.read().await.clone();
 
+        // MirrorWcf 模式：初始化 WCF 平台适配器
+        #[cfg(feature = "windows-cfapi")]
+        if matches!(sync_mode, SyncMode::MirrorWcf) {
+            let config = self.config.read().await;
+            let adapter = crate::platform_wcf::WcfPlatformAdapter::new(
+                self.db.clone(),
+                self.api.clone(),
+                config.clone(),
+            ).map_err(|e| crate::errors::SyncError::Internal(e.to_string()))?;
+            // 在 Arc 化之前提取 fetch receiver
+            let fetch_rx = adapter.take_fetch_receiver(); // &self, not &mut self
+            *self.wcf_fetch_rx.lock().unwrap() = fetch_rx;
+            let adapter_arc = Arc::new(adapter);
+            *self.platform_adapter.lock().unwrap() = Some(adapter_arc.clone());
+            self.worker_pool.set_platform_adapter(adapter_arc);
+            // 缓存 local_root 用于退出时同步清理
+            *self.cached_local_root.lock().unwrap() = config.local_root.clone();
+            tracing::info!("MirrorWcf: WCF 平台适配器已初始化");
+        }
+
         let summary = self.worker_pool.submit(
             plan, worker_config, WorkerTrigger::InitialSync, conflict_resolver,
         ).await?;
@@ -174,16 +216,16 @@ impl SyncEngine {
             (config.local_root.clone(), config.remote_root.clone(), config.sync_mode.clone())
         };
 
-        // 仅 DownloadOnly 和 Full 订阅 SSE
-        let mut remote_rx = if matches!(sync_mode, SyncMode::DownloadOnly | SyncMode::Full) {
+        // 仅 DownloadOnly、Full 和 MirrorWcf 订阅 SSE
+        let mut remote_rx = if matches!(sync_mode, SyncMode::DownloadOnly | SyncMode::Full | SyncMode::MirrorWcf) {
             Some(event_handler.subscribe_sse(&remote_root).await?)
         } else {
             tracing::info!("仅上传模式: 不订阅 SSE 远程事件");
             None
         };
 
-        // 仅 UploadOnly 和 Full 启动本地文件监听
-        let mut local_rx = if matches!(sync_mode, SyncMode::UploadOnly | SyncMode::Full) {
+        // 仅 UploadOnly、Full 和 MirrorWcf 启动本地文件监听
+        let mut local_rx = if matches!(sync_mode, SyncMode::UploadOnly | SyncMode::Full | SyncMode::MirrorWcf) {
             let (local_tx, rx) = tokio::sync::mpsc::channel::<LocalFileEvent>(256);
             let shutdown_clone = self.shutdown_token.lock().unwrap().clone();
             let watch_root = local_root.clone();
@@ -279,6 +321,16 @@ impl SyncEngine {
         *self.state.write().await = SyncState::Continuous;
         tracing::info!("持续同步已启动, 模式={:?}", sync_mode);
 
+        // MirrorWcf: 取走 WCF 回调接收端
+        #[cfg(feature = "windows-cfapi")]
+        let mut wcf_fetch_rx = if matches!(sync_mode, SyncMode::MirrorWcf) {
+            self.wcf_fetch_rx.lock().unwrap().take()
+        } else {
+            None
+        };
+        #[cfg(not(feature = "windows-cfapi"))]
+        let _wcf_fetch_rx: Option<()> = None;
+
         let mut debounce = crate::event_handler::EventDebouncer::new(
             std::time::Duration::from_millis(500),
         );
@@ -309,7 +361,7 @@ impl SyncEngine {
                     self.handle_local_events(all_events, &local_root, &mut debounce).await;
                 }
 
-                // 远程文件变化（仅 DownloadOnly / Full）
+                // 远程文件变化（DownloadOnly / Full / MirrorWcf）
                 Some(event) = async {
                     match &mut remote_rx {
                         Some(rx) => rx.recv().await,
@@ -317,6 +369,30 @@ impl SyncEngine {
                     }
                 } => {
                     self.handle_remote_event(event, &local_root, &remote_root).await;
+                }
+
+                // WCF 水合请求（仅 MirrorWcf）
+                request = async {
+                    #[cfg(feature = "windows-cfapi")]
+                    {
+                        match &mut wcf_fetch_rx {
+                            Some(rx) => rx.recv().await,
+                            None => std::future::pending().await,
+                        }
+                    }
+                    #[cfg(not(feature = "windows-cfapi"))]
+                    {
+                        let _: Option<()> = std::future::pending().await;
+                        None::<()>
+
+                    }
+                } => {
+                    if let Some(req) = request {
+                        #[cfg(feature = "windows-cfapi")]
+                        self.handle_wcf_fetch(req, &local_root).await;
+                        #[cfg(not(feature = "windows-cfapi"))]
+                        let _: () = req;
+                    }
                 }
 
                 // 定期心跳
@@ -345,6 +421,8 @@ impl SyncEngine {
         if matches!(sync_mode, SyncMode::DownloadOnly) {
             return;
         }
+
+        // MirrorWcf 走与 Full 相同的本地事件处理逻辑（唯一差异：跳过占位符上传）
 
         let root_id = self.sync_root_id.clone().unwrap_or_default();
 
@@ -600,6 +678,10 @@ impl SyncEngine {
                         if mapping.local_hash.as_deref() == Some(&quick_hash) {
                             continue;
                         }
+                        // MirrorWcf: 占位符没有实际内容，不需要上传
+                        if mapping.is_placeholder {
+                            continue;
+                        }
                     }
 
                     let mtime_ms = metadata.modified()
@@ -683,7 +765,7 @@ impl SyncEngine {
         }
 
         // === 提交删除远程任务 (本地删除 → 删除远程，仅 Full 模式) ===
-        if !delete_paths.is_empty() && matches!(sync_mode, SyncMode::Full) {
+        if !delete_paths.is_empty() && matches!(sync_mode, SyncMode::Full | SyncMode::MirrorWcf) {
             let mut delete_remote: Vec<SyncAction> = Vec::new();
             for relative in &delete_paths {
                 tracing::info!("检测到本地文件删除: {}", relative);
@@ -747,6 +829,8 @@ impl SyncEngine {
             return;
         }
 
+        let is_mirror_wcf = matches!(sync_mode, SyncMode::MirrorWcf);
+
         let root_id = self.sync_root_id.clone().unwrap_or_default();
 
         match &event {
@@ -784,20 +868,27 @@ impl SyncEngine {
                     }
                 }
 
-                let plan = SyncPlan {
-                    downloads: vec![SyncAction {
-                        relative_path: relative,
-                        local_entry: None,
-                        remote_entry: Some(remote_entry),
-                        db_mapping: None,
-                    }],
-                    ..Default::default()
-                };
-                let worker_config = self.snapshot_worker_config().await;
-                let conflict_resolver = self.conflict.read().await.clone();
-                self.worker_pool.submit_background(
-                    plan, worker_config, WorkerTrigger::Continuous, conflict_resolver,
-                ).await;
+                if is_mirror_wcf {
+                    // MirrorWcf: 创建占位符而非下载
+                    self._create_placeholder_for_remote(
+                        &relative, &remote_entry, local_root, &root_id,
+                    ).await;
+                } else {
+                    let plan = SyncPlan {
+                        downloads: vec![SyncAction {
+                            relative_path: relative,
+                            local_entry: None,
+                            remote_entry: Some(remote_entry),
+                            db_mapping: None,
+                        }],
+                        ..Default::default()
+                    };
+                    let worker_config = self.snapshot_worker_config().await;
+                    let conflict_resolver = self.conflict.read().await.clone();
+                    self.worker_pool.submit_background(
+                        plan, worker_config, WorkerTrigger::Continuous, conflict_resolver,
+                    ).await;
+                }
             }
             RemoteFileEvent::Deleted { uri, name } => {
                 let relative = crate::diff::remote_relative_path(
@@ -858,6 +949,12 @@ impl SyncEngine {
                     self.worker_pool.submit_background(
                         plan, worker_config, WorkerTrigger::Continuous, conflict_resolver,
                     ).await;
+                } else if is_mirror_wcf {
+                    // MirrorWcf: 创建占位符
+                    let remote_entry = self.get_remote_entry_or_fallback(new_entry).await;
+                    self._create_placeholder_for_remote(
+                        &new_relative, &remote_entry, local_root, &root_id,
+                    ).await;
                 } else {
                     // 旧文件不存在本地，直接下载到新位置
                     let remote_entry = self.get_remote_entry_or_fallback(new_entry).await;
@@ -913,6 +1010,12 @@ impl SyncEngine {
                     self.worker_pool.submit_background(
                         plan, worker_config, WorkerTrigger::Continuous, conflict_resolver,
                     ).await;
+                } else if is_mirror_wcf {
+                    // MirrorWcf: 创建占位符
+                    let remote_entry = self.get_remote_entry_or_fallback(new_entry).await;
+                    self._create_placeholder_for_remote(
+                        &new_relative, &remote_entry, local_root, &root_id,
+                    ).await;
                 } else {
                     let remote_entry = self.get_remote_entry_or_fallback(new_entry).await;
                     let plan = SyncPlan {
@@ -948,15 +1051,98 @@ impl SyncEngine {
 
     pub async fn stop(&self) -> Result<()> {
         self.shutdown_token.lock().unwrap().cancel();
+
+        // MirrorWcf: 断开连接、注销 sync root、清理占位符
+        #[cfg(feature = "windows-cfapi")]
+        {
+            self.cleanup_wcf();
+        }
+
         Ok(())
+    }
+
+    /// WCF 清理（同步，可安全在 exit 前调用）
+    #[cfg(feature = "windows-cfapi")]
+    pub fn cleanup_wcf(&self) {
+        let adapter_opt = self.platform_adapter.lock().unwrap().take();
+        if let Some(adapter) = adapter_opt {
+            // 1. 断开 CFApi 连接（同步）
+            if let Err(e) = adapter.disconnect() {
+                tracing::warn!("WCF 断开连接失败: {}", e);
+            }
+
+            // 2. 注销 sync root（同步，从已缓存路径取）
+            let local_root = self.cached_local_root.lock().unwrap().clone();
+            if !local_root.as_os_str().is_empty() {
+                unsafe {
+                    use std::os::windows::ffi::OsStrExt;
+                    let path_w: Vec<u16> = std::ffi::OsStr::new(&local_root)
+                        .encode_wide()
+                        .chain(std::iter::once(0))
+                        .collect();
+                    let _ = windows::Win32::Storage::CloudFilters::CfUnregisterSyncRoot(
+                        windows::core::PCWSTR(path_w.as_ptr()),
+                    );
+                }
+                tracing::info!("WCF sync root 已注销: {}", local_root.display());
+            }
+
+            // 3. 删除所有占位符文件（同步，从 DB 同步查询）
+            let root_id = self.sync_root_id.clone().unwrap_or_default();
+            if let Ok(mappings) = self.list_placeholders_sync(&root_id) {
+                for mapping in &mappings {
+                    let local_path = local_root.join(&mapping.local_path);
+                    if local_path.exists() {
+                        let _ = std::fs::remove_file(&local_path);
+                    }
+                }
+                if !mappings.is_empty() {
+                    tracing::info!("已清理 {} 个占位符文件", mappings.len());
+                }
+            }
+        }
+    }
+
+    /// 同步查询占位符映射（避免 await，可在 exit 前安全调用）
+    #[cfg(feature = "windows-cfapi")]
+    fn list_placeholders_sync(&self, sync_root_id: &str) -> anyhow::Result<Vec<FileMapping>> {
+        let pool = self.db.read_pool();
+        let conn = pool.get().map_err(|e| anyhow::anyhow!("{}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, sync_root_id, local_path, remote_uri, remote_file_id,
+                    local_hash, remote_hash, local_mtime, remote_mtime,
+                    local_size, remote_size, sync_status, is_placeholder
+             FROM file_mapping WHERE sync_root_id = ?1 AND is_placeholder = 1",
+        ).map_err(|e| anyhow::anyhow!("{}", e))?;
+
+        let mappings = stmt.query_map(rusqlite::params![sync_root_id], |row| {
+            Ok(FileMapping {
+                id: row.get(0)?,
+                sync_root_id: row.get(1)?,
+                local_path: std::path::PathBuf::from(row.get::<_, String>(2)?),
+                remote_uri: row.get(3)?,
+                remote_file_id: row.get(4)?,
+                local_hash: row.get(5)?,
+                remote_hash: row.get(6)?,
+                local_mtime: row.get(7)?,
+                remote_mtime: row.get(8)?,
+                local_size: row.get(9)?,
+                remote_size: row.get(10)?,
+                sync_status: crate::sync_db::parse_sync_status(&row.get::<_, String>(11)?),
+                is_placeholder: row.get::<_, i32>(12)? != 0,
+            })
+        }).map_err(|e| anyhow::anyhow!("{}", e))?
+        .filter_map(|m| m.ok()).collect();
+
+        Ok(mappings)
     }
 
     /// 重置同步：停止任务 → 清空 DB → 清空本地目录 → 回到初始状态
     pub async fn reset_sync(&self) -> Result<()> {
         tracing::info!("开始重置同步...");
 
-        // 1. 停止同步
-        self.shutdown_token.lock().unwrap().cancel();
+        // 1. 停止同步（含 WCF 清理）
+        self.stop().await?;
 
         // 2. 终止所有活跃 Worker
         self.worker_pool.abort_all_workers().await;
@@ -1146,13 +1332,235 @@ impl SyncEngine {
         Ok(())
     }
 
-    pub async fn hydrate_file(&self, _local_path: &str) -> Result<()> {
+    pub async fn hydrate_file(&self, local_path: &str) -> Result<()> {
+        #[cfg(feature = "windows-cfapi")]
+        {
+            let path = std::path::PathBuf::from(local_path);
+            if let Some(adapter) = self.platform_adapter.lock().unwrap().as_ref() {
+                adapter.hydrate_file(&path)?;
+            }
+        }
+        let _ = local_path;
         Ok(())
     }
 
+    /// MirrorWcf: 处理 CFApi FETCH_DATA 回调（按需水合）
+    #[cfg(feature = "windows-cfapi")]
+    async fn handle_wcf_fetch(
+        &self,
+        request: sync_windows::FetchDataRequest,
+        _local_root: &std::path::Path,
+    ) {
+        // 从 FileIdentity 反序列化获取远程信息
+        let identity: serde_json::Value = match serde_json::from_slice(&request.file_identity) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!("WCF 水合: FileIdentity 反序列化失败: {}", e);
+                let _ = crate::platform_wcf::WcfPlatformAdapter::reject_fetch_data(
+                    request.connection_key, request.transfer_key,
+                );
+                return;
+            }
+        };
+
+        let remote_uri = identity["uri"].as_str().unwrap_or("").to_string();
+        let remote_size = identity["size"].as_u64().unwrap_or(0);
+        let remote_hash = identity["hash"].as_str().unwrap_or("").to_string();
+
+        if remote_uri.is_empty() {
+            tracing::error!("WCF 水合: FileIdentity 中 uri 为空");
+            let _ = crate::platform_wcf::WcfPlatformAdapter::reject_fetch_data(
+                request.connection_key, request.transfer_key,
+            );
+            return;
+        }
+
+        tracing::debug!("WCF 水合请求: uri={}, size={}, offset={}, length={}",
+            remote_uri, remote_size, request.required_offset, request.required_length);
+
+        let root_id = match &self.sync_root_id {
+            Some(id) => id.clone(),
+            None => {
+                let _ = crate::platform_wcf::WcfPlatformAdapter::reject_fetch_data(
+                    request.connection_key, request.transfer_key,
+                );
+                return;
+            }
+        };
+
+        // 清理过期缓存（超过 5 分钟）
+        let now = std::time::Instant::now();
+        self.hydration_cache.retain(|_, (_, ts)| now.duration_since(*ts).as_secs() < 300);
+
+        // 尝试从缓存获取已下载的数据
+        let data = if let Some(cached) = self.hydration_cache.get(&remote_uri) {
+            tracing::debug!("WCF 水合缓存命中: {}", remote_uri);
+            cached.0.clone()
+        } else {
+            // 首次请求：下载完整文件到缓存
+            tracing::info!("WCF 水合下载: {} ({}bytes)", remote_uri, remote_size);
+            let config = self.snapshot_worker_config().await;
+
+            let download_result = async {
+                let urls = self.api.get_download_url(&[&remote_uri]).await;
+                let urls = match urls {
+                    Ok(u) => u,
+                    Err(crate::errors::SyncError::Auth(_)) => {
+                        // token 可能过期，强制刷新后重试
+                        tracing::info!("WCF 水合: token 过期，尝试刷新后重试");
+                        self.api.refresh_access_token().await?;
+                        self.api.get_download_url(&[&remote_uri]).await?
+                    }
+                    Err(e) => return Err(e),
+                };
+                let download_url = urls.into_iter().next()
+                    .ok_or_else(|| crate::errors::SyncError::Network("获取下载 URL 返回空列表".into()))?;
+
+                let data = crate::downloader::download_to_buffer(
+                    &self.api,
+                    &download_url,
+                    config.bandwidth_limit,
+                ).await?;
+
+                Ok::<Vec<u8>, crate::errors::SyncError>(data)
+            }.await;
+
+            match download_result {
+                Ok(data) => {
+                    self.hydration_cache.insert(remote_uri.clone(), (data.clone(), std::time::Instant::now()));
+                    data
+                }
+                Err(e) => {
+                    tracing::error!("WCF 水合下载失败: {}: {}", remote_uri, e);
+                    let _ = crate::platform_wcf::WcfPlatformAdapter::reject_fetch_data(
+                        request.connection_key, request.transfer_key,
+                    );
+                    return;
+                }
+            }
+        };
+
+        // 计算实际需要传输的范围
+        let offset = request.required_offset.max(0) as usize;
+        let end = if request.required_length < 0 {
+            data.len()
+        } else {
+            (offset + request.required_length as usize).min(data.len())
+        };
+
+        let transfer_data = if offset < data.len() && offset < end {
+            &data[offset..end]
+        } else {
+            &data[..]
+        };
+
+        // 通过 CfExecute 将数据推送给 CFApi（内核层写入，绕过文件锁）
+        match crate::platform_wcf::WcfPlatformAdapter::fulfill_fetch_data(
+            request.connection_key,
+            request.transfer_key,
+            transfer_data,
+            offset as i64,
+        ) {
+            Ok(_) => {
+                tracing::debug!("WCF 水合数据推送: {} offset={} len={}", remote_uri, offset, transfer_data.len());
+
+                // 更新 DB: is_placeholder = false, sync_status = Synced
+                if let Ok(Some(mapping)) = self.db.find_mapping_by_remote_uri(&root_id, &remote_uri).await {
+                    // 抑制本地事件：水合会导致 notify 检测到文件变更，不应触发上传
+                    self.suppress_paths.insert(mapping.local_path.to_string_lossy().into_owned(), std::time::Instant::now());
+                    let _ = self.db.upsert_file_mapping(&FileMapping {
+                        id: mapping.id,
+                        sync_root_id: mapping.sync_root_id,
+                        local_path: mapping.local_path.clone(),
+                        remote_uri: mapping.remote_uri.clone(),
+                        remote_file_id: mapping.remote_file_id.clone(),
+                        local_hash: None,
+                        remote_hash: if remote_hash.is_empty() { mapping.remote_hash.clone() } else { Some(remote_hash.clone()) },
+                        local_mtime: mapping.local_mtime,
+                        remote_mtime: mapping.remote_mtime,
+                        local_size: mapping.local_size,
+                        remote_size: Some(remote_size),
+                        sync_status: SyncFileStatus::Synced,
+                        is_placeholder: false,
+                    }).await;
+                }
+            }
+            Err(e) => {
+                tracing::error!("WCF CfExecute 传输数据失败: {}: {}", remote_uri, e);
+            }
+        }
+    }
+
+    /// MirrorWcf: 为远程文件创建占位符（持续同步时远程新建/修改文件调用）
+    async fn _create_placeholder_for_remote(
+        &self,
+        relative: &str,
+        remote: &RemoteFileEntry,
+        local_root: &std::path::Path,
+        root_id: &str,
+    ) {
+        let local_path = local_root.join(relative);
+
+        // 确保父目录存在
+        if let Some(parent) = local_path.parent() {
+            let _ = tokio::fs::create_dir_all(parent).await;
+        }
+
+        if remote.is_dir {
+            let _ = tokio::fs::create_dir_all(&local_path).await;
+        } else {
+            // 构造 FileIdentity
+            let _file_identity = serde_json::to_vec(&serde_json::json!({
+                "uri": remote.uri,
+                "size": remote.size,
+                "hash": remote.hash.as_deref().unwrap_or(""),
+                "mtime_ms": remote.mtime_ms,
+            })).unwrap_or_default();
+
+            // 创建占位符
+            #[cfg(feature = "windows-cfapi")]
+            {
+                if let Some(adapter) = self.platform_adapter.lock().unwrap().as_ref() {
+                    match adapter.create_placeholder_for_remote(
+                        local_path.parent().unwrap_or(local_root),
+                        local_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default().as_str(),
+                        remote.size,
+                        &remote.uri,
+                        remote.hash.as_deref(),
+                        remote.mtime_ms,
+                    ) {
+                        Ok(_) => tracing::info!("[WCF] 创建占位符: {}", relative),
+                        Err(e) => tracing::warn!("[WCF] 创建占位符失败 {}: {}", relative, e),
+                    }
+                }
+            }
+            #[cfg(not(feature = "windows-cfapi"))]
+            {
+                let _ = (local_path, _file_identity);
+                tracing::warn!("[WCF] CFApi 不可用，跳过占位符创建: {}", relative);
+            }
+
+            // 写入 FileMapping
+            let _ = self.db.upsert_file_mapping(&FileMapping {
+                id: 0,
+                sync_root_id: root_id.to_string(),
+                local_path: std::path::PathBuf::from(relative),
+                remote_uri: remote.uri.clone(),
+                remote_file_id: remote.file_id.clone(),
+                local_hash: None,
+                remote_hash: remote.hash.clone(),
+                local_mtime: None,
+                remote_mtime: Some(remote.mtime_ms),
+                local_size: None,
+                remote_size: Some(remote.size),
+                sync_status: SyncFileStatus::Placeholder,
+                is_placeholder: true,
+            }).await;
+        }
+    }
+
     pub async fn shutdown(self) -> Result<()> {
-        self.shutdown_token.lock().unwrap().cancel();
-        Ok(())
+        self.stop().await
     }
 
     async fn load_all_mappings(&self) -> Result<HashMap<String, FileMapping>> {

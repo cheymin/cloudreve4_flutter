@@ -171,7 +171,7 @@ pub async fn upload_file(
     Ok(())
 }
 
-/// 带重试的创建上传会话
+/// 带重试的创建上传会话（遇到锁冲突自动强制解锁）
 #[allow(clippy::too_many_arguments)]
 pub async fn retry_upload_session(
     task_id: &str,
@@ -195,6 +195,16 @@ pub async fn retry_upload_session(
                 tracing::info!("[{}] 远程文件已存在，切换为覆盖上传", task_id);
                 tried_overwrite = true;
                 continue;
+            }
+            Err(SyncError::LockConflict { tokens }) => {
+                tracing::warn!("[{}] 文件锁定冲突，强制解锁 {} 个锁后重试", task_id, tokens.len());
+                if let Err(e) = api.force_unlock_files(&tokens).await {
+                    tracing::error!("[{}] 强制解锁失败: {}", task_id, e);
+                }
+                if attempt <= max_retries {
+                    continue;
+                }
+                return Err(SyncError::LockConflict { tokens });
             }
             Err(e) if attempt <= max_retries => {
                 let delay = crate::utils::retry_delay_ms(attempt, 1000, 30000);

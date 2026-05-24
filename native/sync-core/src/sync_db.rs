@@ -201,6 +201,7 @@ impl SyncDb {
             SyncMode::UploadOnly => "upload_only",
             SyncMode::DownloadOnly => "download_only",
             SyncMode::Album => "album",
+            SyncMode::MirrorWcf => "mirror_wcf",
         };
 
         let conn = self.write_conn.lock().await;
@@ -276,6 +277,94 @@ impl SyncDb {
             Ok(mapping)
         })
         .await??;
+
+        Ok(result)
+    }
+
+    /// 通过远程 URI 查找文件映射（WCF 水合时使用）
+    pub async fn find_mapping_by_remote_uri(
+        &self,
+        sync_root_id: &str,
+        remote_uri: &str,
+    ) -> Result<Option<FileMapping>> {
+        let pool = self.read_pool.clone();
+        let sync_root_id = sync_root_id.to_string();
+        let remote_uri = remote_uri.to_string();
+
+        let result = tokio::task::spawn_blocking(move || -> Result<Option<FileMapping>> {
+            let conn = pool.get()?;
+            let mut stmt = conn.prepare(
+                "SELECT id, sync_root_id, local_path, remote_uri, remote_file_id,
+                        local_hash, remote_hash, local_mtime, remote_mtime,
+                        local_size, remote_size, sync_status, is_placeholder
+                 FROM file_mapping WHERE sync_root_id = ?1 AND remote_uri = ?2",
+            )?;
+
+            let mapping = stmt
+                .query_row(rusqlite::params![sync_root_id, remote_uri], |row| {
+                    Ok(FileMapping {
+                        id: row.get(0)?,
+                        sync_root_id: row.get(1)?,
+                        local_path: std::path::PathBuf::from(row.get::<_, String>(2)?),
+                        remote_uri: row.get(3)?,
+                        remote_file_id: row.get(4)?,
+                        local_hash: row.get(5)?,
+                        remote_hash: row.get(6)?,
+                        local_mtime: row.get(7)?,
+                        remote_mtime: row.get(8)?,
+                        local_size: row.get(9)?,
+                        remote_size: row.get(10)?,
+                        sync_status: parse_sync_status(&row.get::<_, String>(11)?),
+                        is_placeholder: row.get::<_, i32>(12)? != 0,
+                    })
+                })
+                .ok();
+
+            Ok(mapping)
+        })
+        .await??;
+
+        Ok(result)
+    }
+
+    /// 查询所有占位符文件映射（用于 WCF 退出时清理）
+    #[cfg(feature = "windows-cfapi")]
+    pub async fn list_placeholder_mappings(
+        &self,
+        sync_root_id: &str,
+    ) -> Result<Vec<FileMapping>> {
+        let pool = self.read_pool.clone();
+        let sync_root_id = sync_root_id.to_string();
+
+        let result = tokio::task::spawn_blocking(move || -> Result<Vec<FileMapping>> {
+            let conn = pool.get()?;
+            let mut stmt = conn.prepare(
+                "SELECT id, sync_root_id, local_path, remote_uri, remote_file_id,
+                        local_hash, remote_hash, local_mtime, remote_mtime,
+                        local_size, remote_size, sync_status, is_placeholder
+                 FROM file_mapping WHERE sync_root_id = ?1 AND is_placeholder = 1",
+            )?;
+
+            let mappings = stmt.query_map(rusqlite::params![sync_root_id], |row| {
+                Ok(FileMapping {
+                    id: row.get(0)?,
+                    sync_root_id: row.get(1)?,
+                    local_path: std::path::PathBuf::from(row.get::<_, String>(2)?),
+                    remote_uri: row.get(3)?,
+                    remote_file_id: row.get(4)?,
+                    local_hash: row.get(5)?,
+                    remote_hash: row.get(6)?,
+                    local_mtime: row.get(7)?,
+                    remote_mtime: row.get(8)?,
+                    local_size: row.get(9)?,
+                    remote_size: row.get(10)?,
+                    sync_status: parse_sync_status(&row.get::<_, String>(11)?),
+                    is_placeholder: row.get::<_, i32>(12)? != 0,
+                })
+            })?.filter_map(|m| m.ok()).collect();
+
+            Ok(mappings)
+        }).await??;
 
         Ok(result)
     }
@@ -774,7 +863,7 @@ impl SyncDb {
     }
 }
 
-fn parse_sync_status(s: &str) -> SyncFileStatus {
+pub fn parse_sync_status(s: &str) -> SyncFileStatus {
     match s {
         "uploading" => SyncFileStatus::Uploading,
         "downloading" => SyncFileStatus::Downloading,

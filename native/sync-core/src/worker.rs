@@ -6,10 +6,25 @@ use crate::models::*;
 use crate::sync_db::SyncDb;
 use dashmap::DashMap;
 use dashmap::DashSet;
+#[cfg(feature = "windows-cfapi")]
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
+
+/// 占位符创建接口（由 platform_wcf 模块实现）
+#[cfg(feature = "windows-cfapi")]
+#[async_trait::async_trait]
+pub trait PlaceholderCreator: Send + Sync {
+    async fn create_placeholder_file(
+        &self,
+        base_dir: &Path,
+        file_name: String,
+        file_size: u64,
+        file_identity: &[u8],
+    ) -> Result<()>;
+}
 
 /// Worker — 最小调度单元，拥有独立 UUID 和配置快照
 pub struct Worker {
@@ -24,6 +39,8 @@ pub struct Worker {
     conflict_resolver: ConflictResolver,
     event_sink: Arc<crate::event_sink::EventSink>,
     shutdown_token: CancellationToken,
+    #[cfg(feature = "windows-cfapi")]
+    platform_adapter: Option<Arc<dyn PlaceholderCreator>>,
 }
 
 impl Worker {
@@ -40,6 +57,7 @@ impl Worker {
         conflict_resolver: ConflictResolver,
         event_sink: Arc<crate::event_sink::EventSink>,
         shutdown_token: CancellationToken,
+        #[cfg(feature = "windows-cfapi")] platform_adapter: Option<Arc<dyn PlaceholderCreator>>,
     ) -> Self {
         Self {
             task_id,
@@ -53,6 +71,8 @@ impl Worker {
             conflict_resolver,
             event_sink,
             shutdown_token,
+            #[cfg(feature = "windows-cfapi")]
+            platform_adapter,
         }
     }
 
@@ -87,7 +107,7 @@ impl Worker {
         let mut summary = SyncSummary::default();
         let root_id = self.config.sync_root_id.clone();
 
-        // 1. 创建远程目录结构（UploadOnly / Full）
+        // 1. 创建远程目录结构（UploadOnly / Full / MirrorWcf）
         if !matches!(self.config.sync_mode, SyncMode::DownloadOnly) {
             for dir_path in &self.plan.mkdirs_remote {
                 if self.shutdown_token.is_cancelled() {
@@ -108,7 +128,7 @@ impl Worker {
             }
         }
 
-        // 2. 创建本地目录结构（DownloadOnly / Full）
+        // 2. 创建本地目录结构（DownloadOnly / Full / MirrorWcf）
         if !matches!(self.config.sync_mode, SyncMode::UploadOnly) {
             for dir_path in &self.plan.mkdirs_local {
                 if self.shutdown_token.is_cancelled() {
@@ -121,7 +141,7 @@ impl Worker {
             }
         }
 
-        // 2.1 执行远程重命名（仅 UploadOnly / Full）
+        // 2.1 执行远程重命名（UploadOnly / Full / MirrorWcf）
         if !matches!(self.config.sync_mode, SyncMode::DownloadOnly) {
             for rename in &self.plan.rename_remote {
                 if self.shutdown_token.is_cancelled() {
@@ -604,7 +624,7 @@ impl Worker {
                 .await;
         }
 
-        // 4. 并发上传（UploadOnly / Full）
+        // 4. 并发上传（UploadOnly / Full / MirrorWcf）
         if !matches!(self.config.sync_mode, SyncMode::DownloadOnly) {
             let mut upload_handles: Vec<(String, tokio::task::JoinHandle<Result<()>>)> = Vec::new();
             for action in &self.plan.uploads {
@@ -689,8 +709,116 @@ impl Worker {
             }
         } // end UploadOnly/Full check for uploads
 
-        // 5. 并发下载（DownloadOnly / Full）
-        if !matches!(self.config.sync_mode, SyncMode::UploadOnly) {
+        // 5. 并发下载（DownloadOnly / Full）或 创建占位符（MirrorWcf）
+        if matches!(self.config.sync_mode, SyncMode::MirrorWcf) {
+            // MirrorWcf: 为每个下载项创建占位符，而非实际下载
+            for action in &self.plan.downloads {
+                if self.shutdown_token.is_cancelled() {
+                    break;
+                }
+                let relative = &action.relative_path;
+                let local_path = self.config.local_root.join(relative);
+
+                // 确保父目录存在
+                if let Some(parent) = local_path.parent() {
+                    let _ = tokio::fs::create_dir_all(parent).await;
+                }
+
+                if let Some(ref remote) = action.remote_entry {
+                    if remote.is_dir {
+                        let _ = tokio::fs::create_dir_all(&local_path).await;
+                    } else {
+                        // 调用 CFApi 创建占位符
+                        #[cfg(feature = "windows-cfapi")]
+                        {
+                            let file_identity = serde_json::to_vec(&serde_json::json!({
+                                "uri": remote.uri,
+                                "size": remote.size,
+                                "hash": remote.hash,
+                                "mtime_ms": remote.mtime_ms,
+                            }))
+                            .unwrap_or_default();
+
+                            if let Some(ref adapter) = self.platform_adapter {
+                                match adapter
+                                    .create_placeholder_file(
+                                        local_path
+                                            .parent()
+                                            .unwrap_or(self.config.local_root.as_path()),
+                                        local_path
+                                            .file_name()
+                                            .map(|n| n.to_string_lossy().to_string())
+                                            .unwrap_or_default(),
+                                        remote.size,
+                                        &file_identity,
+                                    )
+                                    .await
+                                {
+                                    Ok(_) => tracing::debug!("[{}] 创建占位符: {}", tid, relative),
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            "[{}] 创建占位符失败，降级空文件 {}: {}",
+                                            tid,
+                                            relative,
+                                            e
+                                        );
+                                        let _ = tokio::fs::write(&local_path, []).await;
+                                    }
+                                }
+                            } else {
+                                tracing::error!(
+                                    "[{}] platform_adapter 未初始化，降级空文件: {}",
+                                    tid,
+                                    relative
+                                );
+                                let _ = tokio::fs::write(&local_path, []).await;
+                            }
+                        }
+                        #[cfg(not(feature = "windows-cfapi"))]
+                        {
+                            let _ = tokio::fs::write(&local_path, []).await;
+                            tracing::warn!(
+                                "[{}] MirrorWcf 不可用，创建空文件降级: {}",
+                                tid,
+                                relative
+                            );
+                        }
+                    }
+
+                    // 写入 FileMapping (is_placeholder = true)
+                    let _ = self
+                        .db
+                        .upsert_file_mapping(&FileMapping {
+                            id: 0,
+                            sync_root_id: root_id.clone(),
+                            local_path: std::path::PathBuf::from(relative),
+                            remote_uri: remote.uri.clone(),
+                            remote_file_id: remote.file_id.clone(),
+                            local_hash: None,
+                            remote_hash: remote.hash.clone(),
+                            local_mtime: None,
+                            remote_mtime: Some(remote.mtime_ms),
+                            local_size: None,
+                            remote_size: Some(remote.size),
+                            sync_status: SyncFileStatus::Placeholder,
+                            is_placeholder: true,
+                        })
+                        .await;
+                }
+
+                let _ = self.db.increment_task_completed(&tid).await;
+                let _ = self
+                    .db
+                    .update_task_item_status_by_path(
+                        &tid,
+                        relative,
+                        "create_placeholder",
+                        &TaskItemStatus::Completed,
+                        None,
+                    )
+                    .await;
+            }
+        } else if !matches!(self.config.sync_mode, SyncMode::UploadOnly) {
             let mut download_handles: Vec<(String, tokio::task::JoinHandle<Result<()>>)> =
                 Vec::new();
             for action in &self.plan.downloads {
@@ -773,7 +901,7 @@ impl Worker {
             }
         } // end DownloadOnly/Full check for downloads
 
-        // 6. 删除本地文件（DownloadOnly / Full — 远程删除触发的本地删除）
+        // 6. 删除本地文件（DownloadOnly / Full / MirrorWcf — 远程删除触发的本地删除）
         if !matches!(self.config.sync_mode, SyncMode::UploadOnly) {
             for action in &self.plan.delete_local {
                 if self.shutdown_token.is_cancelled() {
@@ -966,8 +1094,8 @@ impl Worker {
             }
         } // end UploadOnly check for move_local
 
-        // 7. 删除远程文件（仅 Full）
-        if matches!(self.config.sync_mode, SyncMode::Full) {
+        // 7. 删除远程文件（Full 和 MirrorWcf）
+        if matches!(self.config.sync_mode, SyncMode::Full | SyncMode::MirrorWcf) {
             let remote_uris: Vec<&str> = self
                 .plan
                 .delete_remote
@@ -1083,6 +1211,8 @@ pub struct WorkerPool {
     ensured_dirs: Arc<DashMap<String, ()>>,
     event_sink: Arc<crate::event_sink::EventSink>,
     shutdown_token: std::sync::Mutex<CancellationToken>,
+    #[cfg(feature = "windows-cfapi")]
+    platform_adapter: std::sync::Mutex<Option<Arc<dyn PlaceholderCreator>>>,
 }
 
 impl WorkerPool {
@@ -1122,6 +1252,8 @@ impl WorkerPool {
             ensured_dirs,
             event_sink,
             shutdown_token: std::sync::Mutex::new(shutdown_token),
+            #[cfg(feature = "windows-cfapi")]
+            platform_adapter: std::sync::Mutex::new(None),
         }
     }
 
@@ -1168,7 +1300,7 @@ impl WorkerPool {
 
         // 创建 task_item 记录
         let now_for_items = chrono::Utc::now().to_rfc3339();
-        self.create_task_items(&task_id, &plan, &now_for_items)
+        self.create_task_items(&task_id, &plan, &now_for_items, &config.sync_mode)
             .await?;
 
         // 等待 Worker 信号量
@@ -1190,6 +1322,8 @@ impl WorkerPool {
             conflict_resolver,
             self.event_sink.clone(),
             self.shutdown_token.lock().unwrap().clone(),
+            #[cfg(feature = "windows-cfapi")]
+            self.platform_adapter.lock().unwrap().clone(),
         );
 
         // 推送 WorkerStarted 事件
@@ -1203,9 +1337,11 @@ impl WorkerPool {
             })
             .await;
 
-        self.active_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.active_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let result = worker.run().await;
-        self.active_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        self.active_count
+            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
         result
     }
 
@@ -1252,7 +1388,7 @@ impl WorkerPool {
 
         let now_for_items = chrono::Utc::now().to_rfc3339();
         if let Err(e) = self
-            .create_task_items(&task_id, &plan, &now_for_items)
+            .create_task_items(&task_id, &plan, &now_for_items, &config.sync_mode)
             .await
         {
             tracing::warn!("创建任务项记录失败: {}", e);
@@ -1292,8 +1428,11 @@ impl WorkerPool {
         let active_workers = self.active_workers.clone();
         let active_upload_paths = self.active_upload_paths.clone();
         let active_count = self.active_count.clone();
+        #[cfg(feature = "windows-cfapi")]
+        let platform_adapter = self.platform_adapter.lock().unwrap().clone();
 
-        self.active_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.active_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         let handle = tokio::spawn(async move {
             let _permit = sem.acquire().await.unwrap();
@@ -1309,6 +1448,8 @@ impl WorkerPool {
                 conflict_resolver,
                 event_sink,
                 shutdown_token,
+                #[cfg(feature = "windows-cfapi")]
+                platform_adapter,
             );
             if let Err(e) = worker.run().await {
                 tracing::error!("[{}] Worker后台执行失败: {}", task_id, e);
@@ -1323,6 +1464,11 @@ impl WorkerPool {
 
         self.active_workers.insert(tid.clone(), handle);
         Some(tid)
+    }
+
+    #[cfg(feature = "windows-cfapi")]
+    pub fn set_platform_adapter(&self, adapter: Arc<dyn PlaceholderCreator>) {
+        *self.platform_adapter.lock().unwrap() = Some(adapter);
     }
 
     /// 当前活跃 Worker 数（含阻塞型和后台型）
@@ -1365,11 +1511,18 @@ impl WorkerPool {
         }
         // 清空上传去重集合和计数器
         self.active_upload_paths.clear();
-        self.active_count.store(0, std::sync::atomic::Ordering::Relaxed);
+        self.active_count
+            .store(0, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// 创建 task_item 记录（批量插入，单次持锁）
-    async fn create_task_items(&self, task_id: &str, plan: &SyncPlan, now: &str) -> Result<()> {
+    async fn create_task_items(
+        &self,
+        task_id: &str,
+        plan: &SyncPlan,
+        now: &str,
+        sync_mode: &SyncMode,
+    ) -> Result<()> {
         let mut items: Vec<SyncTaskItem> = Vec::new();
 
         for action in &plan.uploads {
@@ -1386,11 +1539,16 @@ impl WorkerPool {
             });
         }
         for action in &plan.downloads {
+            let action_type = if matches!(sync_mode, SyncMode::MirrorWcf) {
+                TaskActionType::CreatePlaceholder
+            } else {
+                TaskActionType::Download
+            };
             items.push(SyncTaskItem {
                 id: 0,
                 task_id: task_id.to_string(),
                 relative_path: action.relative_path.clone(),
-                action_type: TaskActionType::Download,
+                action_type,
                 status: TaskItemStatus::Pending,
                 file_size: action.remote_entry.as_ref().map(|r| r.size).unwrap_or(0),
                 error_message: None,

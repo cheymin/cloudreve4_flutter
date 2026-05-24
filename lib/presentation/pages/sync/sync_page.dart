@@ -243,6 +243,7 @@ class _SyncPageState extends State<SyncPage> {
       'upload_only' => '仅上传中',
       'download_only' => '仅下载中',
       'album' => '相册同步中',
+      'mirror_wcf' => '镜像同步中',
       _ => '同步中',
     };
   }
@@ -521,6 +522,7 @@ class _SyncPageState extends State<SyncPage> {
     return switch (actionType) {
       'upload' => Colors.blue,
       'download' => Colors.green,
+      'create_placeholder' => Colors.teal,
       'delete_local' || 'delete_remote' => theme.colorScheme.error,
       'rename' || 'move' => Colors.orange,
       'conflict_resolve' => Colors.purple,

@@ -119,6 +119,33 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
                           },
                     child: Column(
                       children: [
+                        if (Platform.isWindows)
+                          RadioListTile<String>(
+                            title: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Text('镜像同步'),
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    '推荐',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: Theme.of(context).colorScheme.primary,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            subtitle: const Text('本地仅保留占位符，打开文件时自动下载'),
+                            value: 'mirror_wcf',
+                          ),
                         RadioListTile<String>(
                           title: const Text('全量同步'),
                           subtitle: const Text('双向同步所有文件'),
@@ -344,7 +371,20 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
   }
 
   Future<void> _handleSyncModeChange(String newMode) async {
-    if (newMode == 'upload_only') {
+    if (newMode == 'full') {
+      final confirmed = await _showModeConfirmDialog(
+        title: '全量同步',
+        description: '此模式下：\n\n'
+            '• 本地和远程双向同步所有文件\n'
+            '• 本地新增、修改的文件将上传到远程\n'
+            '• 远程新增、修改的文件将下载到本地\n'
+            '• 本地删除会同步删除远程副本，反之亦然\n'
+            '• 本地重命名、移动会在远程同步操作，反之亦然\n'
+            '• 冲突时根据所选策略处理\n\n'
+            '适用于需要在本地和远程之间保持完全一致的场景。',
+      );
+      if (confirmed != true) return;
+    } else if (newMode == 'upload_only') {
       final confirmed = await _showModeConfirmDialog(
         title: '仅上传本地到远程',
         description: '此模式下：\n\n'
@@ -367,6 +407,19 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
             '• 本地删除的文件如果远程仍存在会重新下载\n'
             '• 不监听本地文件变化\n\n'
             '适用于只需要在本地保留远程副本的场景。',
+      );
+      if (confirmed != true) return;
+    } else if (newMode == 'mirror_wcf') {
+      final confirmed = await _showModeConfirmDialog(
+        title: '镜像同步',
+        description: '此模式下（仅 Windows）：\n\n'
+            '• 远程文件以占位符形式出现在本地\n'
+            '• 占位符不占用磁盘空间，但在资源管理器中可见\n'
+            '• 打开文件时自动从云端下载（水合）\n'
+            '• 本地修改会同步回远程\n'
+            '• 本地删除仅清理本地，不删除远程副本\n'
+            '• 可手动将文件恢复为占位符（脱水）以释放空间\n\n'
+            '适用于远程文件较多但本地磁盘空间有限的场景。',
       );
       if (confirmed != true) return;
     }

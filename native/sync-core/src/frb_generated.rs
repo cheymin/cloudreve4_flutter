@@ -38,7 +38,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.12.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1726594987;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 264517153;
 
 // Section: executor
 
@@ -831,6 +831,38 @@ fn wire__crate__api__ffi__sync_album_to_cloud_impl(
         },
     )
 }
+fn wire__crate__api__ffi__sync_shutdown_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "sync_shutdown",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, crate::api::ffi_types::SyncErrorFfi>((move || {
+                    let output_ok = crate::api::ffi::sync_shutdown()?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__ffi__update_sync_config_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -1427,8 +1459,9 @@ fn pde_ffi_dispatcher_primary_impl(
         20 => wire__crate__api__ffi__start_initial_sync_impl(port, ptr, rust_vec_len, data_len),
         21 => wire__crate__api__ffi__stop_sync_impl(port, ptr, rust_vec_len, data_len),
         22 => wire__crate__api__ffi__sync_album_to_cloud_impl(port, ptr, rust_vec_len, data_len),
-        23 => wire__crate__api__ffi__update_sync_config_impl(port, ptr, rust_vec_len, data_len),
-        24 => wire__crate__api__ffi__update_tokens_impl(port, ptr, rust_vec_len, data_len),
+        23 => wire__crate__api__ffi__sync_shutdown_impl(port, ptr, rust_vec_len, data_len),
+        24 => wire__crate__api__ffi__update_sync_config_impl(port, ptr, rust_vec_len, data_len),
+        25 => wire__crate__api__ffi__update_tokens_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }

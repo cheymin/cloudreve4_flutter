@@ -17,6 +17,9 @@ pub mod downloader;
 pub mod worker;
 pub mod event_sink;
 
+#[cfg(feature = "windows-cfapi")]
+pub mod platform_wcf;
+
 // 平台适配器 trait
 use async_trait::async_trait;
 use crate::errors::Result;

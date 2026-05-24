@@ -43,7 +43,7 @@ pub fn compute_diff(
         let db = db_mappings.get(path.as_str());
 
         match (local, remote, db) {
-            // 本地有，远程无 → 上传（UploadOnly 和 Full）
+            // 本地有，远程无 → 上传（UploadOnly、Full 和 MirrorWcf）
             (Some(l), None, _) => {
                 if matches!(sync_mode, SyncMode::DownloadOnly) {
                     continue;
@@ -70,7 +70,7 @@ pub fn compute_diff(
                 }
             }
 
-            // 远程有，本地无 → 下载（DownloadOnly 和 Full）
+            // 远程有，本地无 → 下载（DownloadOnly、Full 和 MirrorWcf）
             (None, Some(r), _) => {
                 if matches!(sync_mode, SyncMode::UploadOnly) {
                     continue;
@@ -125,7 +125,7 @@ pub fn compute_diff(
         }
     }
 
-    // 远程目录结构（仅 UploadOnly 和 Full）
+    // 远程目录结构（UploadOnly、Full 和 MirrorWcf）
     if !matches!(sync_mode, SyncMode::DownloadOnly) {
         for (path, local) in &local_map {
             if local.is_dir && !remote_map.contains_key(path.as_str()) {
@@ -149,8 +149,8 @@ fn resolve_conflicts_by_mode(plan: &mut SyncPlan, sync_mode: &SyncMode) {
     let conflicts = std::mem::take(&mut plan.conflicts);
     for conflict in conflicts {
         match sync_mode {
-            SyncMode::UploadOnly => {
-                // 冲突一律覆盖上传
+            SyncMode::UploadOnly | SyncMode::MirrorWcf => {
+                // 冲突一律覆盖上传（MirrorWcf 本地编辑优先）
                 let action = SyncAction {
                     relative_path: conflict.relative_path.clone(),
                     local_entry: conflict.local_entry.clone(),
