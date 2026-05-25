@@ -30,27 +30,26 @@ class CaptchaProxyConfig {
 
 const _envVarName = 'WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS';
 
-/// 为 WebView2 设置代理环境变量，返回旧值（用于恢复）
-String? _applyWebView2Proxy(CaptchaProxyConfig? proxy) {
-  if (!Platform.isWindows) return null;
-
-  final oldValue = Platform.environment[_envVarName];
+/// 为 WebView2 设置代理环境变量（进程级，不影响其他程序）
+void _applyWebView2Proxy(CaptchaProxyConfig? proxy) {
+  if (!Platform.isWindows) return;
 
   if (proxy != null) {
-    winSetEnvVar(_envVarName, proxy.proxyArg);
-    AppLogger.i('WebView2 代理环境变量已设置: ${proxy.proxyArg}');
-  } else {
-    winSetEnvVar(_envVarName, null);
-    AppLogger.i('WebView2 代理环境变量已清除');
+    // 进程级环境变量，已有值则追加（保留用户可能通过启动参数设置的值）
+    final existing = Platform.environment[_envVarName];
+    final newValue = existing != null && existing.isNotEmpty
+        ? '$existing ${proxy.proxyArg}'
+        : proxy.proxyArg;
+    winSetEnvVar(_envVarName, newValue);
+    AppLogger.i('WebView2 代理环境变量已设置: $newValue');
   }
-
-  return oldValue;
 }
 
-/// 恢复 WebView2 环境变量到旧值
-void _restoreWebView2Env(String? oldValue) {
+/// 清除 WebView2 代理环境变量
+void _clearWebView2Proxy() {
   if (!Platform.isWindows) return;
-  winSetEnvVar(_envVarName, oldValue);
+  winSetEnvVar(_envVarName, null);
+  AppLogger.i('WebView2 代理环境变量已清除');
 }
 
 // ═════════════════════════════════════════════════════
@@ -147,8 +146,8 @@ class _CaptchaChallengePageState extends State<CaptchaChallengePage> {
   String? _statusText;
   bool _disposed = false;
 
-  // ── 代理环境变量旧值（用于恢复）──
-  String? _savedEnvValue;
+  // ── 是否设置了代理环境变量（用于清理时判断）──
+  bool _proxyEnvSet = false;
 
   // ── HTML ──
   late String _currentHtml;
@@ -160,7 +159,8 @@ class _CaptchaChallengePageState extends State<CaptchaChallengePage> {
 
     // Windows: 在 WebView2 创建前设置代理环境变量
     if (_isDesktop && widget.proxyConfig != null && Platform.isWindows) {
-      _savedEnvValue = _applyWebView2Proxy(widget.proxyConfig);
+      _applyWebView2Proxy(widget.proxyConfig);
+      _proxyEnvSet = true;
     }
 
     if (!_isDesktop) {
@@ -291,9 +291,9 @@ class _CaptchaChallengePageState extends State<CaptchaChallengePage> {
       AppLogger.d('开始清理 WebView controller');
       ctrl?.dispose();
       AppLogger.d('WebView controller 已 dispose');
-      if (Platform.isWindows && _savedEnvValue != null) {
-        _restoreWebView2Env(_savedEnvValue!);
-        _savedEnvValue = null;
+      if (_proxyEnvSet) {
+        _clearWebView2Proxy();
+        _proxyEnvSet = false;
       }
     }
   }
