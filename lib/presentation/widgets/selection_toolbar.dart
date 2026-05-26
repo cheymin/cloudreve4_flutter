@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 /// 选择工具栏组件
 class SelectionToolbar extends StatelessWidget {
   final int selectionCount;
+  final int totalCount;
   final VoidCallback onCancel;
-  final VoidCallback? onRename;
+  final VoidCallback? onSelectAll;
+  final VoidCallback? onMore;
   final VoidCallback? onMove;
   final VoidCallback? onCopy;
   final VoidCallback onDelete;
@@ -12,8 +14,10 @@ class SelectionToolbar extends StatelessWidget {
   const SelectionToolbar({
     super.key,
     required this.selectionCount,
+    this.totalCount = 0,
     required this.onCancel,
-    this.onRename,
+    this.onSelectAll,
+    this.onMore,
     this.onMove,
     this.onCopy,
     required this.onDelete,
@@ -45,11 +49,19 @@ class SelectionToolbar extends StatelessWidget {
             onPressed: onCancel,
             tooltip: '取消选择',
           ),
-          if (selectionCount == 1 && onRename != null)
+          if (onSelectAll != null && selectionCount < totalCount)
             IconButton(
-              icon: const Icon(Icons.edit),
-              onPressed: onRename,
-              tooltip: '重命名',
+              icon: const Icon(Icons.select_all),
+              onPressed: onSelectAll,
+              tooltip: '全选',
+            ),
+          if (selectionCount == 1 && onMore != null)
+            IconButton(
+              icon: Icon(Theme.of(context).platform == TargetPlatform.iOS
+                  ? Icons.more_horiz
+                  : Icons.more_vert),
+              onPressed: onMore,
+              tooltip: '更多',
             ),
           if (onMove != null)
             IconButton(

@@ -213,6 +213,12 @@ class ApiService {
         AppLogger.d("_errorInterceptor -> 获取files列表: response");
         AppLogger.d('API Error: ${error.requestOptions.uri} - ${error.message}');
 
+        // silent404: 调用方标记 404 为预期行为，拦截器不抛异常，直接放行
+        final silent404 = error.requestOptions.extra['silent404'] as bool? ?? false;
+        if (silent404 && error.response?.statusCode == 404) {
+          return handler.next(error);
+        }
+
         // 检查是否是 401 错误（HTTP 401 或 JSON code: 401）
         bool is401Error = error.response?.statusCode == 401;
         if (!is401Error && error.response?.data is Map<String, dynamic>) {
@@ -345,12 +351,13 @@ class ApiService {
     Map<String, dynamic>? queryParameters,
     bool noAuth = false,
     bool isNoData = false,
+    bool silent404 = false,
     Map<String, dynamic>? headers,
   }) async {
     final response = await _dio.get<T>(
       path,
       queryParameters: queryParameters,
-      options: Options(extra: {'noAuth': noAuth}, headers: headers),
+      options: Options(extra: {'noAuth': noAuth, 'silent404': silent404}, headers: headers),
     );
     // 如果是分享请求, 则不进入 _parseResponse
     if (isNoData) {

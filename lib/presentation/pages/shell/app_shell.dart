@@ -4,11 +4,17 @@ import 'package:cloudreve4_flutter/presentation/providers/file_manager_provider.
 import 'package:cloudreve4_flutter/presentation/providers/navigation_provider.dart';
 import 'package:cloudreve4_flutter/presentation/providers/sync_provider.dart';
 import 'package:cloudreve4_flutter/presentation/providers/upload_manager_provider.dart';
+import 'package:cloudreve4_flutter/presentation/widgets/announcement_dialog.dart';
 import 'package:cloudreve4_flutter/presentation/widgets/gesture_handler_mixin.dart';
 import 'package:cloudreve4_flutter/presentation/widgets/glassmorphism_container.dart';
 import 'package:cloudreve4_flutter/presentation/widgets/user_avatar.dart';
+import 'package:cloudreve4_flutter/services/announcement_service.dart';
+import 'package:cloudreve4_flutter/services/dialog_queue_service.dart';
+import 'package:cloudreve4_flutter/services/share_link_service.dart';
+import 'package:cloudreve4_flutter/presentation/pages/share/share_link_page.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import '../../../router/app_router.dart';
@@ -47,9 +53,10 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> with GestureHandlerMixin, TickerProviderStateMixin {
+class _AppShellState extends State<AppShell> with GestureHandlerMixin, TickerProviderStateMixin, WidgetsBindingObserver {
   final Set<int> _visitedPageIndexes = <int>{0};
   late AnimationController _syncSpinController;
+  String? _lastClipboardShareId;
 
   /// 同步 tab 仅在桌面平台显示，Android 入口在"我的"页面
   bool get _showSyncTab => defaultTargetPlatform != TargetPlatform.android && defaultTargetPlatform != TargetPlatform.iOS;
@@ -66,12 +73,103 @@ class _AppShellState extends State<AppShell> with GestureHandlerMixin, TickerPro
       vsync: this,
       duration: const Duration(seconds: 2),
     );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _showPostLoginAnnouncement();
+      _checkClipboardShareLink();
+    });
+    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _syncSpinController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkClipboardShareLink();
+    }
+  }
+
+  Future<void> _showPostLoginAnnouncement() async {
+    final authProvider = context.read<AuthProvider>();
+    if (!authProvider.isAuthenticated) return;
+
+    try {
+      final service = AnnouncementService.instance;
+      final announcement = await service.getChangedSiteNotice();
+      if (!mounted || announcement == null) return;
+
+      await DialogQueueService.instance.enqueue<void>(() async {
+        if (!mounted) return;
+
+        await AnnouncementDialog.show(
+          context,
+          title: announcement.title,
+          html: announcement.html,
+          baseUrl: announcement.baseUrl,
+        );
+
+        await service.markDismissed(announcement);
+      });
+    } catch (_) {
+      // 公告检查失败不能影响主界面
+    }
+  }
+
+  Future<void> _checkClipboardShareLink() async {
+    await Future<void>.delayed(const Duration(milliseconds: 650));
+    if (!mounted) return;
+
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      final candidate = ShareLinkService.instance.parseShareLink(data?.text);
+
+      if (candidate == null) return;
+      if (_lastClipboardShareId == candidate.id) return;
+
+      _lastClipboardShareId = candidate.id;
+
+      await DialogQueueService.instance.enqueue<void>(() async {
+        if (!mounted) return;
+
+        final open = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('检测到分享链接'),
+            content: Text(
+              '是否打开这个文件分享？\n\n${candidate.url}',
+              maxLines: 5,
+              overflow: TextOverflow.ellipsis,
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('忽略'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: const Text('打开'),
+              ),
+            ],
+          ),
+        );
+
+        if (open == true && mounted) {
+          await Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => ShareLinkPage(candidate: candidate),
+            ),
+          );
+        }
+      });
+    } catch (_) {
+      // 读取剪贴板失败不能影响主界面
+    }
   }
 
   @override

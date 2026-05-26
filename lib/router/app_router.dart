@@ -16,6 +16,9 @@ import '../presentation/pages/preview/audio_preview_page.dart';
 import '../presentation/pages/preview/document_preview_page.dart';
 import '../presentation/pages/preview/markdown_preview_page.dart';
 import '../presentation/pages/files/category_files_page.dart';
+import '../presentation/pages/share/share_link_page.dart';
+import '../presentation/pages/preview/cloudreve_file_app_page.dart';
+import '../services/share_link_service.dart';
 import '../data/models/file_model.dart';
 
 /// 路由名称
@@ -39,6 +42,8 @@ class RouteNames {
   static const String markdownPreview = '/markdown-preview';
   static const String categoryFiles = '/category-files';
   static const String syncSettings = '/sync-settings';
+  static const String shareLink = '/share-link';
+  static const String cloudreveFileApp = '/cloudreve-file-app';
 }
 
 /// 应用路由
@@ -233,6 +238,35 @@ class AppRouter {
         return MaterialPageRoute(
           settings: settings,
           builder: (context) => const SyncSettingsPage(),
+        );
+
+      case RouteNames.shareLink:
+        final args = settings.arguments;
+        if (args is ShareLinkCandidate) {
+          return MaterialPageRoute(
+            settings: settings,
+            builder: (context) => ShareLinkPage(candidate: args),
+          );
+        }
+        return MaterialPageRoute(
+          settings: settings,
+          builder: (context) => const SplashPage(),
+        );
+
+      case RouteNames.cloudreveFileApp:
+        final args = settings.arguments;
+        if (args is Map<String, dynamic>) {
+          return MaterialPageRoute(
+            settings: settings,
+            builder: (context) => CloudreveFileAppPage(
+              file: args['file'] as FileModel,
+              preferredAction: args['preferredAction'] as String?,
+            ),
+          );
+        }
+        return MaterialPageRoute(
+          settings: settings,
+          builder: (context) => const SplashPage(),
         );
 
       default:

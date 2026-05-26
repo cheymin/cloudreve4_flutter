@@ -55,12 +55,22 @@ android {
         jvmTarget = JavaVersion.VERSION_17.toString()
     }
 
+    sourceSets {
+        getByName("main") {
+            jniLibs.srcDirs("src/main/jniLibs")
+        }
+    }
+
     defaultConfig {
         applicationId = "com.limo.cloudreve4_flutter"
         minSdk = getLocalProperty("flutter.minSdkVersion", 31)
         targetSdk = getLocalProperty("flutter.targetSdkVersion", 34)
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        ndk {
+            abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a"))
+        }
     }
 
     packaging {

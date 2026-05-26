@@ -21,6 +21,7 @@ migrate_working_dir/
 .frontend/
 
 # custom
+.claude/
 CLAUDE.md
 claude_project.md
 PROJECT_REQUIREMENTS.md
@@ -43,6 +44,7 @@ native/logs
 sync_refactory.md
 tools/*
 *.diff
+android/app/src/main/jniLibs/*
 
 # The .vscode folder contains launch configuration and tasks you configure in
 # VS Code which you may wish to be included in version control, so this line

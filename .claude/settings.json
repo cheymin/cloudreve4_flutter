@@ -15,10 +15,31 @@
       "Bash(awk 'NR>178' /home/aeno/Documents/cloudreve4_flutter/lib/presentation/pages/auth/login_page.dart)",
       "Bash(mv /tmp/login_part1.txt /home/aeno/Documents/cloudreve4_flutter/lib/presentation/pages/auth/login_page.dart)",
       "Bash(head -798 /home/aeno/Documents/cloudreve4_flutter/lib/presentation/pages/auth/login_page.dart)",
-      "Bash(tail -n +835 /home/aeno/Documents/cloudreve4_flutter/lib/presentation/pages/auth/login_page.dart)"
+      "Bash(tail -n +835 /home/aeno/Documents/cloudreve4_flutter/lib/presentation/pages/auth/login_page.dart)",
+      "Read(//home/aeno/Downloads/pr/cloudreve4_flutter/lib/presentation/pages/auth/**)",
+      "Read(//home/aeno/Downloads/pr/cloudreve4_flutter/lib/presentation/pages/files/**)",
+      "Read(//home/aeno/Downloads/pr/cloudreve4_flutter/lib/presentation/pages/profile/**)",
+      "Read(//home/aeno/Downloads/pr/cloudreve4_flutter/lib/presentation/pages/share/**)",
+      "Read(//home/aeno/Downloads/pr/cloudreve4_flutter/lib/presentation/pages/preview/**)",
+      "Read(//home/aeno/Downloads/pr/cloudreve4_flutter/lib/services/**)",
+      "Read(//home/aeno/Downloads/pr/cloudreve4_flutter/lib/presentation/pages/store/**)",
+      "Read(//home/aeno/Downloads/pr/cloudreve4_flutter/lib/presentation/widgets/**)",
+      "Bash(cd /home/aeno/Downloads/pr/cloudreve4_flutter && wc -l lib/presentation/pages/auth/captcha_challenge_page.dart lib/presentation/pages/auth/turnstile_captcha_page.dart lib/presentation/pages/files/category_files_page.dart lib/presentation/pages/preview/cloudreve_file_app_page.dart lib/presentation/pages/profile/account_switcher_page.dart lib/presentation/pages/share/share_link_page.dart lib/presentation/pages/store/store_page.dart 2>/dev/null | tail -1)",
+      "Read(//home/aeno/Downloads/pr/cloudreve4_flutter/**)",
+      "Bash(cp /home/aeno/Downloads/pr/cloudreve4_flutter/lib/presentation/pages/share/share_link_page.dart lib/presentation/pages/share/)",
+      "Bash(cp /home/aeno/Downloads/pr/cloudreve4_flutter/lib/services/share_link_service.dart lib/services/)",
+      "Bash(cp /home/aeno/Downloads/pr/cloudreve4_flutter/lib/presentation/widgets/announcement_dialog.dart lib/presentation/widgets/)",
+      "Bash(cp /home/aeno/Downloads/pr/cloudreve4_flutter/lib/presentation/pages/preview/cloudreve_file_app_page.dart lib/presentation/pages/preview/)",
+      "Bash(cp /home/aeno/Downloads/pr/cloudreve4_flutter/lib/presentation/pages/files/category_files_page.dart lib/presentation/pages/files/category_files_page.dart)",
+      "Bash(gh api *)",
+      "Bash(gh search *)"
     ],
     "additionalDirectories": [
-      "/home/aeno/Documents/cloudreve4_flutter4_flutter/lib/presentation/widgets"
+      "/home/aeno/Documents/cloudreve4_flutter4_flutter/lib/presentation/widgets",
+      "/home/aeno/Downloads/pr/cloudreve4_flutter/lib/services",
+      "/home/aeno/Downloads/pr/cloudreve4_flutter/lib/presentation/widgets",
+      "/home/aeno/Downloads/pr/cloudreve4_flutter/lib/presentation/pages/preview",
+      "/home/aeno/Downloads/pr/cloudreve4_flutter/lib/presentation/pages/files"
     ]
   }
 }

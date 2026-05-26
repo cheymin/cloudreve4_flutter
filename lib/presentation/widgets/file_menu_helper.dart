@@ -7,6 +7,7 @@ enum FileMenuAction {
   select,
   download,
   openInBrowser,
+  openInCloudreveApp,
   rename,
   move,
   copy,
@@ -22,6 +23,7 @@ Future<FileMenuAction?> showFileMenu({
   required bool hasSelect,
   required bool hasDownload,
   required bool hasOpenInBrowser,
+  bool hasOpenInCloudreveApp = false,
   required bool hasRename,
   required bool hasMove,
   required bool hasCopy,
@@ -84,6 +86,17 @@ Future<FileMenuAction?> showFileMenu({
               Icon(Icons.open_in_browser, size: 20),
               SizedBox(width: 12),
               Text('在浏览器中打开'),
+            ],
+          ),
+        ),
+      if (hasOpenInCloudreveApp)
+        const PopupMenuItem(
+          value: FileMenuAction.openInCloudreveApp,
+          child: Row(
+            children: [
+              Icon(Icons.web_asset, size: 20),
+              SizedBox(width: 12),
+              Text('在 Cloudreve 中打开'),
             ],
           ),
         ),

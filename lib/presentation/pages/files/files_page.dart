@@ -101,6 +101,38 @@ class _FilesPageState extends State<FilesPage> {
     });
   }
 
+  void _showSelectionMore(
+    FileModel file,
+    FileManagerProvider fileManager,
+  ) {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit),
+              title: const Text('重命名'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                FileOperationDialogs.showRenameDialog(context, fileManager, file);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.info_outline),
+              title: const Text('查看详情'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _showFileInfo(file);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // ---- FAB 显隐控制 ----
 
   void _hideFab() {
@@ -791,6 +823,7 @@ class _FilesPageState extends State<FilesPage> {
                     onSelect: () => fileManager.toggleSelection(file.path),
                     onDownload: !file.isFolder ? () => _downloadFile(context, fileManager, file) : null,
                     onOpenInBrowser: !file.isFolder ? () => _openInBrowser(context, file) : null,
+                    onOpenInCloudreveApp: !file.isFolder ? () => _openInCloudreveApp(context, file) : null,
                     onRename: () => FileOperationDialogs.showRenameDialog(context, fileManager, file),
                     onMove: () => FileOperationDialogs.showMoveDialog(context, fileManager, file, false),
                     onCopy: () => FileOperationDialogs.showMoveDialog(context, fileManager, file, true),
@@ -869,6 +902,7 @@ class _FilesPageState extends State<FilesPage> {
               onSelect: () => fileManager.toggleSelection(file.path),
               onDownload: !file.isFolder ? () => _downloadFile(context, fileManager, file) : null,
               onOpenInBrowser: !file.isFolder ? () => _openInBrowser(context, file) : null,
+              onOpenInCloudreveApp: !file.isFolder ? () => _openInCloudreveApp(context, file) : null,
               onRename: () => FileOperationDialogs.showRenameDialog(context, fileManager, file),
               onMove: () => FileOperationDialogs.showMoveDialog(context, fileManager, file, false),
               onCopy: () => FileOperationDialogs.showMoveDialog(context, fileManager, file, true),
@@ -891,14 +925,15 @@ class _FilesPageState extends State<FilesPage> {
         if (fileManager.hasSelection) {
           return SelectionToolbar(
             selectionCount: fileManager.selectedFiles.length,
+            totalCount: fileManager.files.length,
             onCancel: () => fileManager.clearSelection(),
-            onRename: fileManager.selectedFiles.length == 1
-                ? () => FileOperationDialogs.showRenameDialog(
-                      context,
-                      fileManager,
+            onSelectAll: () => fileManager.selectAll(),
+            onMore: fileManager.selectedFiles.length == 1
+                ? () => _showSelectionMore(
                       fileManager.files.firstWhere(
                         (f) => f.path == fileManager.selectedFiles.first,
                       ),
+                      fileManager,
                     )
                 : null,
             onMove: () => FileOperationDialogs.showBatchMoveDialog(
@@ -999,5 +1034,14 @@ class _FilesPageState extends State<FilesPage> {
         ToastHelper.failure('获取下载链接失败: $e');
       }
     }
+  }
+
+  void _openInCloudreveApp(BuildContext context, FileModel file) {
+    Navigator.of(context).pushNamed(
+      RouteNames.cloudreveFileApp,
+      arguments: {
+        'file': file,
+      },
+    );
   }
 }

@@ -930,7 +930,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
       (Level.error, 'Error — 仅错误'),
       (Level.warning, 'Warning — 错误 + 警告'),
       (Level.info, 'Info — 常规信息'),
-      (Level.debug, 'Debug — 调试信息（含FFI交互）'),
+      (Level.debug, 'Debug — 调试信息（含FFI）'),
       (Level.trace, 'Trace — 全量追踪'),
     ];
 
@@ -950,7 +950,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
                   color: isSelected ? Theme.of(ctx).colorScheme.primary : Theme.of(ctx).hintColor,
                 ),
                 const SizedBox(width: 8),
-                Text(e.$2),
+                Flexible(child: Text(e.$2)),
               ],
             ),
           );

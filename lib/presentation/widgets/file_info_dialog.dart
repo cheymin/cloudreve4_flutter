@@ -19,11 +19,58 @@ class FileInfoPanel extends StatefulWidget {
     Scaffold.of(context).openEndDrawer();
   }
 
+  /// 以 BottomSheet 方式展示文件详情
+  static void showAsBottomSheet(BuildContext context, FileModel file) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => _FileInfoSheet(file: file),
+    );
+  }
+
   @override
   State<FileInfoPanel> createState() => _FileInfoPanelState();
 }
 
 class _FileInfoPanelState extends State<FileInfoPanel> {
+  @override
+  Widget build(BuildContext context) {
+    return Drawer(
+      child: FileInfoPanelContent(file: widget.file),
+    );
+  }
+}
+
+/// 以 BottomSheet 形式展示的文件详情
+class _FileInfoSheet extends StatelessWidget {
+  final FileModel file;
+  const _FileInfoSheet({required this.file});
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.7,
+      minChildSize: 0.4,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (context, scrollController) {
+        return FileInfoPanelContent(file: file);
+      },
+    );
+  }
+}
+
+/// FileInfoPanel 的可复用内容区（不含 Drawer 壳）
+class FileInfoPanelContent extends StatefulWidget {
+  final FileModel file;
+  const FileInfoPanelContent({super.key, required this.file});
+
+  @override
+  State<FileInfoPanelContent> createState() => _FileInfoPanelContentState();
+}
+
+class _FileInfoPanelContentState extends State<FileInfoPanelContent> {
   FileInfoModel? _fileInfo;
   bool _isLoading = true;
   bool _isCalculatingFolder = false;
@@ -87,58 +134,53 @@ class _FileInfoPanelState extends State<FileInfoPanel> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    return Drawer(
-      child: SafeArea(
-        right: false,
-        child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.only(
-              left: 16,
-              right: 8,
-              top: 8,
-              bottom: 12,
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.only(
+            left: 16,
+            right: 8,
+            top: 8,
+            bottom: 12,
+          ),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(color: theme.dividerColor.withValues(alpha: 0.2)),
             ),
-            decoration: BoxDecoration(
-              border: Border(
-                bottom: BorderSide(color: theme.dividerColor.withValues(alpha: 0.2)),
+          ),
+          child: Row(
+            children: [
+              FileIconUtils.buildIconWidget(
+                context: context,
+                file: widget.file,
+                size: 32,
+                iconSize: 18,
+                borderRadius: 8,
               ),
-            ),
-            child: Row(
-              children: [
-                FileIconUtils.buildIconWidget(
-                  context: context,
-                  file: widget.file,
-                  size: 32,
-                  iconSize: 18,
-                  borderRadius: 8,
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  widget.file.name,
+                  style: theme.textTheme.titleMedium,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    widget.file.name,
-                    style: theme.textTheme.titleMedium,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(LucideIcons.x),
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
-              ],
-            ),
+              ),
+              IconButton(
+                icon: const Icon(LucideIcons.x),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ],
           ),
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _error != null
-                    ? _buildError(theme)
-                    : _buildContent(theme, colorScheme),
-          ),
-        ],
         ),
-      ),
+        Expanded(
+          child: _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+                  ? _buildError(theme)
+                  : _buildContent(theme, colorScheme),
+        ),
+      ],
     );
   }
 
@@ -179,7 +221,6 @@ class _FileInfoPanelState extends State<FileInfoPanel> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 类型标签
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
             decoration: BoxDecoration(
@@ -196,8 +237,6 @@ class _FileInfoPanelState extends State<FileInfoPanel> {
             ),
           ),
           const SizedBox(height: 16),
-
-          // 基本信息
           _buildInfoRow(LucideIcons.folderOpen, '位置', Uri.decodeComponent(file.relativePath)),
           if (file.isFile)
             _buildInfoRow(
@@ -210,7 +249,6 @@ class _FileInfoPanelState extends State<FileInfoPanel> {
           if (file.owned != null)
             _buildInfoRow(LucideIcons.shield, '所有者', file.owned! ? '是' : '否'),
 
-          // 文件扩展信息
           if (file.isFile && extendedInfo != null) ...[
             const SizedBox(height: 12),
             Divider(color: theme.dividerColor.withValues(alpha: 0.3)),
@@ -234,7 +272,6 @@ class _FileInfoPanelState extends State<FileInfoPanel> {
               ),
           ],
 
-          // 版本历史
           if (file.isFile && versionEntities.isNotEmpty) ...[
             const SizedBox(height: 12),
             Divider(color: theme.dividerColor.withValues(alpha: 0.3)),
@@ -242,7 +279,6 @@ class _FileInfoPanelState extends State<FileInfoPanel> {
             _buildVersionSection(theme, colorScheme, versionEntities),
           ],
 
-          // 文件夹信息
           if (file.isFolder) ...[
             const SizedBox(height: 12),
             Divider(color: theme.dividerColor.withValues(alpha: 0.3)),
@@ -488,8 +524,6 @@ class _FileInfoPanelState extends State<FileInfoPanel> {
     );
   }
 
-  // ─── 版本操作 ───
-
   void _openVersion(EntityModel entity) {
     final file = _fileInfo!.file;
     if (!FileTypeUtils.isPreviewable(file.name)) {
@@ -600,8 +634,6 @@ class _FileInfoPanelState extends State<FileInfoPanel> {
       }
     }
   }
-
-  // ─── 文件夹摘要 ───
 
   Widget _buildFolderSummary(ThemeData theme, ColorScheme colorScheme) {
     final summary = _fileInfo?.folderSummary;

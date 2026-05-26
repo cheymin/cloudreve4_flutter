@@ -1,5 +1,6 @@
 import 'package:cloudreve4_flutter/presentation/providers/navigation_provider.dart';
 import 'package:cloudreve4_flutter/router/app_router.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
@@ -29,7 +30,17 @@ class QuickFunctionsSection extends StatelessWidget {
     _QuickFunction(
       icon: LucideIcons.refreshCw,
       label: '文件同步',
-      onTap: (ctx) => ctx.read<NavigationProvider>().setIndex(4),
+      onTap: (ctx) {
+        final nav = ctx.read<NavigationProvider>();
+        // 桌面端有同步 Tab（index 4），直接切换；移动端跳转同步设置页
+        final isDesktop = defaultTargetPlatform != TargetPlatform.android &&
+            defaultTargetPlatform != TargetPlatform.iOS;
+        if (isDesktop) {
+          nav.setIndex(4);
+        } else {
+          Navigator.of(ctx).pushNamed(RouteNames.syncSettings);
+        }
+      },
     ),
     _QuickFunction(icon: LucideIcons.settings, label: '设置', route: RouteNames.settings),
   ];
