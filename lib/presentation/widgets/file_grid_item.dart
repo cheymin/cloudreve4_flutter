@@ -17,6 +17,7 @@ class FileGridItem extends StatelessWidget {
   final VoidCallback? onSelect;
   final VoidCallback? onDownload;
   final VoidCallback? onOpenInBrowser;
+  final VoidCallback? onOpenInCloudreveApp;
   final VoidCallback? onRename;
   final VoidCallback? onMove;
   final VoidCallback? onCopy;
@@ -38,6 +39,7 @@ class FileGridItem extends StatelessWidget {
     this.onSelect,
     this.onDownload,
     this.onOpenInBrowser,
+    this.onOpenInCloudreveApp,
     this.onRename,
     this.onMove,
     this.onCopy,
@@ -81,6 +83,7 @@ class FileGridItem extends StatelessWidget {
       hasSelect: onSelect != null,
       hasDownload: onDownload != null,
       hasOpenInBrowser: onOpenInBrowser != null,
+      hasOpenInCloudreveApp: onOpenInCloudreveApp != null,
       hasRename: onRename != null,
       hasMove: onMove != null,
       hasCopy: onCopy != null,
@@ -97,6 +100,8 @@ class FileGridItem extends StatelessWidget {
         onDownload?.call();
       case FileMenuAction.openInBrowser:
         onOpenInBrowser?.call();
+      case FileMenuAction.openInCloudreveApp:
+        onOpenInCloudreveApp?.call();
       case FileMenuAction.rename:
         onRename?.call();
       case FileMenuAction.move:

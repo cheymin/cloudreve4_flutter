@@ -221,7 +221,7 @@ class _CaptchaChallengePageState extends State<CaptchaChallengePage> {
   // ─── Bridge 消息处理 ─────────────────────────────────
 
   void _handleBridgeMessage(String rawMessage) {
-    AppLogger.d('Bridge 收到消息: ${rawMessage.length > 100 ? rawMessage.substring(0, 100) + "..." : rawMessage}');
+    AppLogger.d('Bridge 收到消息: ${rawMessage.length > 100 ? "${rawMessage.substring(0, 100)}..." : rawMessage}');
     try {
       final decoded = jsonDecode(rawMessage);
       if (decoded is! Map) return;

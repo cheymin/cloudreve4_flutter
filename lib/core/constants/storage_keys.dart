@@ -35,4 +35,7 @@ class StorageKeys {
 
   // 日志级别
   static const String logLevel = 'app_log_level';
+
+  // 公告
+  static const String siteAnnouncementDismissedFingerprint = 'site_announcement_dismissed_fingerprint';
 }

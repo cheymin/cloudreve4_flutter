@@ -132,7 +132,7 @@ class _FolderPickerState extends State<FolderPicker> {
     return InkWell(
       onTap: () => _enterFolder(folder),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
         child: Row(
           children: [
             Container(
@@ -163,7 +163,7 @@ class _FolderPickerState extends State<FolderPicker> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
           child: Row(
             children: [
               Expanded(

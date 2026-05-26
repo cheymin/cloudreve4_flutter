@@ -308,7 +308,7 @@ class CaptchaService {
               const SizedBox(height: 8),
               Text(
                 _isDesktop && Platform.isWindows
-                    ? '当前验证码类型：$displayName${hasProxy ? '  (代理: ${_proxyConfig})' : ''}\n网络问题验证失败可长按上方按钮可以设置代理(仅windows)'
+                    ? '当前验证码类型：$displayName${hasProxy ? '  (代理: $_proxyConfig)' : ''}\n网络问题验证失败可长按上方按钮可以设置代理(仅windows)'
                     : '当前验证码类型：$displayName',
                 style: TextStyle(
                   fontSize: 12,

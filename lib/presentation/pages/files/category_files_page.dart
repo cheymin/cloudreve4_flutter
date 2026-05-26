@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:provider/provider.dart';
 
 import '../../../core/utils/date_utils.dart' as date_utils;
 import '../../../core/utils/file_type_utils.dart';
 import '../../../data/models/file_model.dart';
 import '../../../router/app_router.dart';
 import '../../../services/file_service.dart';
+import '../../providers/file_manager_provider.dart';
+import '../../widgets/file_info_dialog.dart';
+import '../../widgets/file_operation_dialogs.dart';
+import '../../widgets/selection_toolbar.dart';
 import '../../widgets/thumbnail_image.dart';
 import '../../widgets/toast_helper.dart';
 
@@ -55,16 +61,24 @@ class CategoryFilesPage extends StatefulWidget {
   State<CategoryFilesPage> createState() => _CategoryFilesPageState();
 }
 
-class _CategoryFilesPageState extends State<CategoryFilesPage> {
+class _CategoryFilesPageState extends State<CategoryFilesPage>
+    with TickerProviderStateMixin {
   final _fileService = FileService();
   final _scrollController = ScrollController();
 
   final List<FileModel> _files = [];
+  final Set<String> _selectedFilePaths = <String>{};
   String? _nextPageToken;
   String? _contextHint;
   bool _isLoading = true;
   bool _isLoadingMore = false;
   String? _errorMessage;
+
+  bool get _hasSelection => _selectedFilePaths.isNotEmpty;
+
+  List<FileModel> get _selectedFiles => _files
+      .where((file) => _selectedFilePaths.contains(file.path))
+      .toList(growable: false);
 
   @override
   void initState() {
@@ -77,6 +91,7 @@ class _CategoryFilesPageState extends State<CategoryFilesPage> {
   void didUpdateWidget(covariant CategoryFilesPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.args.category != widget.args.category) {
+      _clearSelection();
       _loadFiles(refresh: true);
     }
   }
@@ -105,6 +120,7 @@ class _CategoryFilesPageState extends State<CategoryFilesPage> {
         _nextPageToken = null;
         _contextHint = null;
         _files.clear();
+        _selectedFilePaths.clear();
       });
     } else {
       setState(() {
@@ -156,24 +172,148 @@ class _CategoryFilesPageState extends State<CategoryFilesPage> {
 
   Future<void> _refresh() => _loadFiles(refresh: true);
 
+  void _toggleSelection(FileModel file) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      if (_selectedFilePaths.contains(file.path)) {
+        _selectedFilePaths.remove(file.path);
+      } else {
+        _selectedFilePaths.add(file.path);
+      }
+    });
+  }
+
+  void _clearSelection() {
+    if (_selectedFilePaths.isEmpty) return;
+    setState(_selectedFilePaths.clear);
+  }
+
+  void _selectAllVisible() {
+    setState(() {
+      _selectedFilePaths
+        ..clear()
+        ..addAll(_files.map((file) => file.path));
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    return PopScope(
+      canPop: !_hasSelection,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && _hasSelection) {
+          _clearSelection();
+        }
+      },
+      child: Scaffold(
+        appBar: _buildAppBar(context),
+        body: RefreshIndicator(
+          onRefresh: _refresh,
+          child: _buildBody(context),
+        ),
+        bottomNavigationBar: _buildSelectionBottomBar(context),
+      ),
+    );
+  }
+
+  PreferredSizeWidget _buildAppBar(BuildContext context) {
     final args = widget.args;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(args.title),
+    if (_hasSelection) {
+      return AppBar(
+        automaticallyImplyLeading: false,
+        leading: IconButton(
+          icon: const Icon(LucideIcons.x),
+          tooltip: '取消选择',
+          onPressed: _clearSelection,
+        ),
+        centerTitle: true,
+        title: Text('已选中 ${_selectedFilePaths.length} 个文件'),
         actions: [
-          IconButton(
-            icon: const Icon(LucideIcons.refreshCw),
-            tooltip: '刷新',
-            onPressed: _refresh,
+          TextButton(
+            onPressed: _selectAllVisible,
+            child: const Text('全选'),
           ),
         ],
-      ),
-      body: RefreshIndicator(
-        onRefresh: _refresh,
-        child: _buildBody(context),
+      );
+    }
+
+    return AppBar(
+      title: Text(args.title),
+      actions: [
+        IconButton(
+          icon: const Icon(LucideIcons.refreshCw),
+          tooltip: '刷新',
+          onPressed: _refresh,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSelectionBottomBar(BuildContext context) {
+    final selected = _selectedFiles;
+    final singleSelected = selected.length == 1 ? selected.first : null;
+
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.bottomCenter,
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 220),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        layoutBuilder: (currentChild, previousChildren) {
+          return Stack(
+            alignment: Alignment.bottomCenter,
+            children: <Widget>[
+              ...previousChildren,
+              ?currentChild,
+            ],
+          );
+        },
+        transitionBuilder: (child, animation) {
+          final curved = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
+          );
+          final slide = Tween<Offset>(
+            begin: const Offset(0, 0.10),
+            end: Offset.zero,
+          ).animate(curved);
+
+          return FadeTransition(
+            opacity: curved,
+            child: SlideTransition(position: slide, child: child),
+          );
+        },
+        child: _hasSelection
+            ? SelectionToolbar(
+                key: const ValueKey('category-selection-toolbar'),
+                selectionCount: _selectedFilePaths.length,
+                totalCount: _files.length,
+                onCancel: _clearSelection,
+                onSelectAll: _selectAllVisible,
+                onMore: singleSelected == null
+                    ? null
+                    : () => _showSelectionMore(context, singleSelected),
+                onMove: () => FileOperationDialogs.showBatchMoveDialog(
+                      context,
+                      context.read<FileManagerProvider>(),
+                      _selectedFilePaths.toList(),
+                      false,
+                    ),
+                onCopy: () => FileOperationDialogs.showBatchMoveDialog(
+                      context,
+                      context.read<FileManagerProvider>(),
+                      _selectedFilePaths.toList(),
+                      true,
+                    ),
+                onDelete: () => _deleteSelectedFiles(context, selected),
+              )
+            : const SizedBox.shrink(
+                key: ValueKey('category-selection-toolbar-empty'),
+              ),
       ),
     );
   }
@@ -242,7 +382,8 @@ class _CategoryFilesPageState extends State<CategoryFilesPage> {
         final spacing = width >= 720 ? 14.0 : 10.0;
         final horizontalPadding = width >= 720 ? 16.0 : 10.0;
         final columnWidth =
-            (width - horizontalPadding * 2 - spacing * (columnCount - 1)) / columnCount;
+            (width - horizontalPadding * 2 - spacing * (columnCount - 1)) /
+                columnCount;
 
         final columns = List.generate(columnCount, (_) => <FileModel>[]);
         final heights = List.generate(columnCount, (_) => 0.0);
@@ -260,7 +401,7 @@ class _CategoryFilesPageState extends State<CategoryFilesPage> {
             horizontalPadding,
             10,
             horizontalPadding,
-            24,
+            _hasSelection ? 92 : 24,
           ),
           children: [
             _buildSummaryHeader(context),
@@ -276,11 +417,22 @@ class _CategoryFilesPageState extends State<CategoryFilesPage> {
                           Padding(
                             padding: EdgeInsets.only(bottom: spacing),
                             child: _CategoryFileTile(
+                              key: ValueKey('category-file-${file.id.isNotEmpty ? file.id : file.path}'),
                               file: file,
                               contextHint: _contextHint,
                               category: widget.args.category,
                               accentColor: widget.args.color,
-                              onTap: () => _openFile(context, file),
+                              isSelected: _selectedFilePaths.contains(file.path),
+                              selectionMode: _hasSelection,
+                              onTap: () {
+                                if (_hasSelection) {
+                                  _toggleSelection(file);
+                                } else {
+                                  _openFile(context, file);
+                                }
+                              },
+                              onLongPress: () => _toggleSelection(file),
+                              onSelect: () => _toggleSelection(file),
                             ),
                           ),
                       ],
@@ -316,7 +468,9 @@ class _CategoryFilesPageState extends State<CategoryFilesPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: theme.brightness == Brightness.dark ? 0.14 : 0.10),
+        color: color.withValues(
+          alpha: theme.brightness == Brightness.dark ? 0.14 : 0.10,
+        ),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: color.withValues(alpha: 0.20)),
       ),
@@ -389,6 +543,140 @@ class _CategoryFilesPageState extends State<CategoryFilesPage> {
       ToastHelper.info('暂不支持预览 ${FileTypeUtils.getFileTypeDescription(file.name)}');
     }
   }
+
+  Future<void> _deleteSelectedFiles(
+    BuildContext context,
+    List<FileModel> selectedFiles,
+  ) async {
+    if (selectedFiles.isEmpty) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('删除确认'),
+        content: Text('确定删除这 ${selectedFiles.length} 个文件吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await _fileService.deleteFiles(
+        uris: selectedFiles.map((file) => file.path).toList(),
+      );
+      if (!mounted) return;
+      setState(() {
+        final selectedPaths = selectedFiles.map((file) => file.path).toSet();
+        _files.removeWhere((file) => selectedPaths.contains(file.path));
+        _selectedFilePaths.clear();
+      });
+      ToastHelper.success('删除成功');
+    } catch (e) {
+      if (context.mounted) {
+        ToastHelper.failure('删除失败: $e');
+      }
+    }
+  }
+
+  Future<void> _renameFile(BuildContext context, FileModel file) async {
+    final controller = TextEditingController(text: file.name);
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('重命名'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            labelText: '新名称',
+            prefixIcon: Icon(LucideIcons.edit3, size: 20),
+          ),
+          autofocus: true,
+          onSubmitted: (_) => Navigator.of(dialogContext).pop(true),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+
+    final newName = controller.text.trim();
+    if (confirmed != true || newName.isEmpty || newName == file.name) return;
+
+    try {
+      final response = await _fileService.renameFile(
+        uri: file.path,
+        newName: newName,
+      );
+      if (!mounted) return;
+      if (response.isEmpty) {
+        await _refresh();
+      } else {
+        final updatedFile = FileModel.fromJson(response);
+        setState(() {
+          final index = _files.indexWhere((item) => item.path == file.path);
+          if (index != -1) _files[index] = updatedFile;
+          _selectedFilePaths
+            ..remove(file.path)
+            ..add(updatedFile.path);
+        });
+      }
+      ToastHelper.success('重命名成功');
+    } catch (e) {
+      if (context.mounted) {
+        ToastHelper.failure('重命名失败: $e');
+      }
+    }
+  }
+
+  void _showSelectionMore(BuildContext context, FileModel file) {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit),
+              title: const Text('重命名'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _renameFile(context, file);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.info_outline),
+              title: const Text('查看详情'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                FileInfoPanel.showAsBottomSheet(context, file);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _CategoryFileTile extends StatelessWidget {
@@ -396,14 +684,23 @@ class _CategoryFileTile extends StatelessWidget {
   final String? contextHint;
   final String category;
   final Color accentColor;
+  final bool isSelected;
+  final bool selectionMode;
   final VoidCallback onTap;
+  final VoidCallback onLongPress;
+  final VoidCallback onSelect;
 
   const _CategoryFileTile({
+    super.key,
     required this.file,
     required this.contextHint,
     required this.category,
     required this.accentColor,
+    required this.isSelected,
+    required this.selectionMode,
     required this.onTap,
+    required this.onLongPress,
+    required this.onSelect,
   });
 
   @override
@@ -416,75 +713,128 @@ class _CategoryFileTile extends StatelessWidget {
     final ext = FileTypeUtils.getExtension(file.name);
     final isPsd = ext == 'psd' || ext == 'psb';
 
-    return Material(
-      color: theme.colorScheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(14),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            border: Border.all(
-              color: theme.dividerColor.withValues(alpha: 0.12),
+    final borderColor = isSelected
+        ? theme.colorScheme.primary
+        : theme.dividerColor.withValues(alpha: 0.12);
+
+    final showSelectionCircle = selectionMode || isSelected;
+
+    return RepaintBoundary(
+      child: AnimatedScale(
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeOutCubic,
+        scale: isSelected ? 0.985 : 1.0,
+        child: Material(
+          color: theme.colorScheme.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(14),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            onLongPress: onLongPress,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    AspectRatio(
+                      aspectRatio: isMedia || isPsd ? 1 : 1.45,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          RepaintBoundary(
+                            child: ThumbnailImage(
+                              file: file,
+                              contextHint: contextHint,
+                              borderRadius: 0,
+                            ),
+                          ),
+                          Positioned(
+                            top: 7,
+                            left: 7,
+                            child: _TypeBadge(
+                              icon: _badgeIcon(),
+                              label: _badgeLabel(ext),
+                              color: accentColor,
+                              compact: isMedia,
+                            ),
+                          ),
+                          if (category == 'video')
+                            const Center(
+                              child: _PlayOverlay(),
+                            ),
+                        ],
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            file.name,
+                            maxLines: isAudio || isDocument ? 2 : 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            '${FileTypeUtils.getFileTypeDescription(file.name)} · ${date_utils.DateUtils.formatFileSize(file.size)}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.hintColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      curve: Curves.easeOutCubic,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: borderColor,
+                          width: isSelected ? 2.2 : 1,
+                        ),
+                        boxShadow: isSelected
+                            ? [
+                                BoxShadow(
+                                  color: theme.colorScheme.primary
+                                      .withValues(alpha: 0.12),
+                                  blurRadius: 10,
+                                  spreadRadius: 0.5,
+                                ),
+                              ]
+                            : const [],
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: 7,
+                  right: 7,
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 130),
+                    opacity: showSelectionCircle ? 1 : 0,
+                    child: IgnorePointer(
+                      ignoring: !showSelectionCircle,
+                      child: _SelectionCircle(
+                        selected: isSelected,
+                        onTap: onSelect,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              AspectRatio(
-                aspectRatio: isMedia || isPsd ? 1 : 1.45,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    ThumbnailImage(
-                      file: file,
-                      contextHint: contextHint,
-                      borderRadius: 0,
-                    ),
-                    Positioned(
-                      top: 7,
-                      left: 7,
-                      child: _TypeBadge(
-                        icon: _badgeIcon(),
-                        label: _badgeLabel(ext),
-                        color: accentColor,
-                        compact: isMedia,
-                      ),
-                    ),
-                    if (category == 'video')
-                      const Center(
-                        child: _PlayOverlay(),
-                      ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      file.name,
-                      maxLines: isAudio || isDocument ? 2 : 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      '${FileTypeUtils.getFileTypeDescription(file.name)} · ${date_utils.DateUtils.formatFileSize(file.size)}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.hintColor,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
           ),
         ),
       ),
@@ -520,6 +870,60 @@ class _CategoryFileTile extends StatelessWidget {
       default:
         return '文件';
     }
+  }
+}
+
+class _SelectionCircle extends StatelessWidget {
+  final bool selected;
+  final VoidCallback? onTap;
+
+  const _SelectionCircle({
+    required this.selected,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          width: 28,
+          height: 28,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: selected
+                ? colorScheme.primary
+                : colorScheme.surface.withValues(alpha: 0.86),
+            border: Border.all(
+              color: selected
+                  ? colorScheme.primary
+                  : colorScheme.outline.withValues(alpha: 0.42),
+              width: 1.4,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.10),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: selected
+              ? const Icon(
+                  LucideIcons.check,
+                  color: Colors.white,
+                  size: 16,
+                )
+              : null,
+        ),
+      ),
+    );
   }
 }
 
