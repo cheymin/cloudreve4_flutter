@@ -26,7 +26,9 @@ class FileManagerProvider extends ChangeNotifier {
   List<String> _selectedFiles = [];
   FileViewType _viewType = FileViewType.list;
   bool _isLoading = false;
+  bool _isLoadingMore = false;
   bool _hasMore = true;
+  String? _nextPageToken;
   String? _errorMessage;
   String? _contextHint;
   String? _highlightPath;
@@ -37,7 +39,9 @@ class FileManagerProvider extends ChangeNotifier {
   List<String> get selectedFiles => _selectedFiles;
   FileViewType get viewType => _viewType;
   bool get isLoading => _isLoading;
+  bool get isLoadingMore => _isLoadingMore;
   bool get hasMore => _hasMore;
+  String? get nextPageToken => _nextPageToken;
   String? get errorMessage => _errorMessage;
   String? get contextHint => _contextHint;
   bool get hasSelection => _selectedFiles.isNotEmpty;
@@ -52,6 +56,7 @@ class FileManagerProvider extends ChangeNotifier {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
+      _nextPageToken = null;
     });
 
     try {
@@ -67,7 +72,8 @@ class FileManagerProvider extends ChangeNotifier {
         _files = filesData
             .map((f) => FileModel.fromJson(f as Map<String, dynamic>))
             .toList();
-        _hasMore = pagination['next_token'] != null;
+        _nextPageToken = pagination['next_token'] as String?;
+        _hasMore = _nextPageToken != null;
         _contextHint = response['context_hint'] as String?;
       });
     } on TimeoutException {
@@ -87,12 +93,56 @@ class FileManagerProvider extends ChangeNotifier {
     }
   }
 
+  /// 加载更多文件（分页）
+  Future<void> loadMoreFiles({Duration timeout = const Duration(seconds: 5)}) async {
+    if (_isLoadingMore || _nextPageToken == null) return;
+
+    setState(() {
+      _isLoadingMore = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final response = await FileService().listFiles(
+        uri: _currentPath,
+        pageSize: 50,
+        nextPageToken: _nextPageToken,
+      ).timeout(timeout);
+
+      final List<dynamic> filesData = response['files'] as List<dynamic>? ?? [];
+      final pagination = response['pagination'] as Map<String, dynamic>? ?? {};
+      final newFiles = filesData
+          .map((f) => FileModel.fromJson(f as Map<String, dynamic>))
+          .toList();
+
+      setState(() {
+        final existingIds = _files.map((e) => e.id).toSet();
+        _files.addAll(newFiles.where((f) => !existingIds.contains(f.id)));
+        _nextPageToken = pagination['next_token'] as String?;
+        _hasMore = _nextPageToken != null;
+      });
+    } on TimeoutException {
+      setState(() {
+        _errorMessage = '加载更多超时，请重试';
+      });
+    } catch (e) {
+      setState(() {
+        _errorMessage = e.toString();
+      });
+    } finally {
+      setState(() {
+        _isLoadingMore = false;
+      });
+    }
+  }
+
   /// 进入文件夹
   Future<void> enterFolder(String path) async {
     _currentPath = path;
     _selectedFiles.clear();
     _highlightPath = null;
     _highlightTimer?.cancel();
+    _nextPageToken = null;
     ThumbnailService.instance.clearAll();
     await loadFiles();
   }
@@ -111,6 +161,7 @@ class FileManagerProvider extends ChangeNotifier {
     _selectedFiles.clear();
     _highlightPath = null;
     _highlightTimer?.cancel();
+    _nextPageToken = null;
     ThumbnailService.instance.clearAll();
     notifyListeners();
     await loadFiles();
@@ -319,10 +370,12 @@ class FileManagerProvider extends ChangeNotifier {
       _selectedFiles = [];
       _currentPath = '/';
       _errorMessage = null;
+      _nextPageToken = null;
+      _hasMore = true;
     });
   }
 
-  /// 智能刷新 - 只更新差异部分
+  /// 智能刷新 - 只更新差异部分（仅刷新首页）
   Future<RefreshResult> refreshFiles({Duration timeout = const Duration(seconds: 5)}) async {
     setState(() {
       _isLoading = true;
@@ -378,9 +431,11 @@ class FileManagerProvider extends ChangeNotifier {
         }
       }
 
+      final pagination = response['pagination'] as Map<String, dynamic>?;
       setState(() {
         _files = updatedFiles;
-        _hasMore = response['pagination']?['next_token'] != null;
+        _nextPageToken = pagination?['next_token'] as String?;
+        _hasMore = _nextPageToken != null;
         _contextHint = response['context_hint'] as String?;
       });
 

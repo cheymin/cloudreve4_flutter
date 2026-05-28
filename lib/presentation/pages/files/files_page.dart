@@ -41,6 +41,7 @@ class _FilesPageState extends State<FilesPage> {
   bool _isFirstLoad = true;
   FileModel? _infoFile;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  final ScrollController _scrollController = ScrollController();
 
   // FAB 状态
   bool _isFabVisible = true;
@@ -53,6 +54,7 @@ class _FilesPageState extends State<FilesPage> {
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_onScrollForPagination);
 
     Future.delayed(const Duration(milliseconds: 100), () {
       if (mounted) {
@@ -88,9 +90,21 @@ class _FilesPageState extends State<FilesPage> {
 
   @override
   void dispose() {
+    _scrollController.removeListener(_onScrollForPagination);
+    _scrollController.dispose();
     _fabShowTimer?.cancel();
     UploadService.instance.onUploadCompleted = null;
     super.dispose();
+  }
+
+  void _onScrollForPagination() {
+    if (!_scrollController.hasClients) return;
+    final fileManager = Provider.of<FileManagerProvider>(context, listen: false);
+    if (!fileManager.hasMore || fileManager.isLoadingMore || fileManager.isLoading) return;
+    final position = _scrollController.position;
+    if (position.pixels >= position.maxScrollExtent - 320) {
+      fileManager.loadMoreFiles();
+    }
   }
 
   void _showFileInfo(FileModel file) {
@@ -740,6 +754,7 @@ class _FilesPageState extends State<FilesPage> {
   Widget _buildListView(BuildContext context, FileManagerProvider fileManager) {
     final isDesktop = MediaQuery.of(context).size.width >= 1000;
     final showCheckbox = fileManager.hasSelection;
+    final itemCount = fileManager.files.length + (fileManager.hasMore || fileManager.isLoadingMore ? 1 : 0);
 
     return Column(
       children: [
@@ -750,11 +765,15 @@ class _FilesPageState extends State<FilesPage> {
             child: NotificationListener<ScrollNotification>(
               onNotification: _onScrollNotification,
               child: ListView.builder(
+                controller: _scrollController,
                 key: PageStorageKey('files_list_${fileManager.currentPath}'),
                 cacheExtent: 900,
                 keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-                itemCount: fileManager.files.length,
+                itemCount: itemCount,
                 itemBuilder: (context, index) {
+                  if (index >= fileManager.files.length) {
+                    return _buildLoadMoreIndicator(context, fileManager);
+                  }
                   final file = fileManager.files[index];
                   final isSelected = fileManager.selectedFiles.contains(file.path);
 
@@ -817,12 +836,14 @@ class _FilesPageState extends State<FilesPage> {
     final itemWidth = (availableWidth - spacing * (crossAxisCount - 1)) / crossAxisCount;
     final childAspectRatio = itemWidth / 160;
     final showCheckbox = fileManager.hasSelection;
+    final itemCount = fileManager.files.length + (fileManager.hasMore || fileManager.isLoadingMore ? 1 : 0);
 
     return RefreshIndicator(
       onRefresh: () => _onRefresh(fileManager),
       child: NotificationListener<ScrollNotification>(
         onNotification: _onScrollNotification,
         child: GridView.builder(
+          controller: _scrollController,
           key: PageStorageKey('files_grid_${fileManager.currentPath}'),
           cacheExtent: 1100,
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
@@ -833,8 +854,11 @@ class _FilesPageState extends State<FilesPage> {
             crossAxisSpacing: spacing / 2,
             childAspectRatio: childAspectRatio,
           ),
-          itemCount: fileManager.files.length,
+          itemCount: itemCount,
           itemBuilder: (context, index) {
+            if (index >= fileManager.files.length) {
+              return _buildGridLoadMoreIndicator(context, fileManager);
+            }
             final file = fileManager.files[index];
             final isSelected = fileManager.selectedFiles.contains(file.path);
 
@@ -868,6 +892,54 @@ class _FilesPageState extends State<FilesPage> {
               onInfo: () => _showFileInfo(file),
             );
           },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLoadMoreIndicator(BuildContext context, FileManagerProvider fileManager) {
+    if (fileManager.isLoadingMore) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 16),
+        child: Center(child: SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        )),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Center(
+        child: OutlinedButton.icon(
+          onPressed: () => fileManager.loadMoreFiles(),
+          icon: const Icon(LucideIcons.chevronsDown, size: 16),
+          label: const Text('加载更多'),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGridLoadMoreIndicator(BuildContext context, FileManagerProvider fileManager) {
+    if (fileManager.isLoadingMore) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
+    }
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: OutlinedButton.icon(
+          onPressed: () => fileManager.loadMoreFiles(),
+          icon: const Icon(LucideIcons.chevronsDown, size: 16),
+          label: const Text('加载更多'),
         ),
       ),
     );
