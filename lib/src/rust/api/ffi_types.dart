@@ -16,12 +16,16 @@ class CloudAlbumCheckResultFfi {
   final bool picturesExists;
   final String? dcimUri;
   final String? picturesUri;
+  final bool cameraExists;
+  final String? cameraUri;
 
   const CloudAlbumCheckResultFfi({
     required this.dcimExists,
     required this.picturesExists,
     this.dcimUri,
     this.picturesUri,
+    required this.cameraExists,
+    this.cameraUri,
   });
 
   @override
@@ -29,7 +33,9 @@ class CloudAlbumCheckResultFfi {
       dcimExists.hashCode ^
       picturesExists.hashCode ^
       dcimUri.hashCode ^
-      picturesUri.hashCode;
+      picturesUri.hashCode ^
+      cameraExists.hashCode ^
+      cameraUri.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -39,7 +45,9 @@ class CloudAlbumCheckResultFfi {
           dcimExists == other.dcimExists &&
           picturesExists == other.picturesExists &&
           dcimUri == other.dcimUri &&
-          picturesUri == other.picturesUri;
+          picturesUri == other.picturesUri &&
+          cameraExists == other.cameraExists &&
+          cameraUri == other.cameraUri;
 }
 
 /// 同步配置

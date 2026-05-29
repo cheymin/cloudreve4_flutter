@@ -40,7 +40,11 @@
       "Bash(ls /home/aeno/Datas/SDK/android/ndk/28.2.13676358/toolchains/)",
       "Read(//home/aeno/Datas/SDK/android/ndk/28.2.13676358/toolchains/**)",
       "Bash(export CC_aarch64_linux_android=/home/aeno/Datas/SDK/android/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang)",
-      "Bash(export AR_aarch64_linux_android=/home/aeno/Datas/SDK/android/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar)"
+      "Bash(export AR_aarch64_linux_android=/home/aeno/Datas/SDK/android/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar)",
+      "Bash(grep -E \"\\\\.\\(dart\\)$\")",
+      "Bash(flutter_rust_bridge_codegen generate *)",
+      "Bash(dart run *)",
+      "Bash(dart pub *)"
     ],
     "additionalDirectories": [
       "/home/aeno/Documents/cloudreve4_flutter4_flutter/lib/presentation/widgets",

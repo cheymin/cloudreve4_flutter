@@ -11,6 +11,7 @@ impl SyncEngine {
         remote_root: &str,
     ) {
         // UploadOnly: 忽略所有远程事件
+        // AlbumDownload: 忽略删除事件（不删本地照片）
         let sync_mode = {
             let config = self.config.read().await;
             config.sync_mode.clone()
@@ -89,6 +90,13 @@ impl SyncEngine {
                     false,
                 );
                 tracing::info!("[远程事件] 删除: {}", relative);
+
+                // AlbumDownload: 远程删除不删除本地文件，仅清理 DB 映射
+                if matches!(sync_mode, SyncMode::AlbumDownload) {
+                    tracing::info!("[远程事件] AlbumDownload 模式，跳过本地删除: {}", relative);
+                    let _ = self.db.delete_file_mapping(&root_id, &relative).await;
+                    return;
+                }
 
                 // 被抑制的路径：上传失败清理远端碎片等场景，不应删除本地文件
                 if self.suppress_paths.contains_key(&relative) {

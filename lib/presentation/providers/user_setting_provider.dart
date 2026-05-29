@@ -244,6 +244,15 @@ class UserSettingProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 清除用户数据（切换账号时调用）
+  void clear() {
+    _settings = null;
+    _capacity = null;
+    _errorMessage = null;
+    _state = UserSettingState.idle;
+    notifyListeners();
+  }
+
   void _setState(UserSettingState state) {
     _state = state;
     notifyListeners();

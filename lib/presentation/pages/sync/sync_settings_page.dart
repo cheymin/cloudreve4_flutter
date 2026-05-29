@@ -938,8 +938,8 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
       return;
     }
 
-    // Android 相册模式：先申请媒体权限
-    if (Platform.isAndroid && (_syncMode == 'album_upload' || _syncMode == 'album_download')) {
+    // Android 相册模式：先申请对应权限
+    if (Platform.isAndroid && _syncMode == 'album_upload') {
       final statuses = await [
         Permission.photos,
         Permission.videos,
@@ -947,12 +947,40 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
       if (!statuses[Permission.photos]!.isGranted || !statuses[Permission.videos]!.isGranted) {
         if (mounted) {
           ToastHelper.failure('需要相册和视频权限才能同步');
-          // 引导用户去系统设置页开启权限
           final shouldOpen = await showDialog<bool>(
             context: context,
             builder: (ctx) => AlertDialog(
               title: const Text('权限不足'),
               content: const Text('相册同步需要访问照片和视频的权限，请在系统设置中开启。'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('取消'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('去设置'),
+                ),
+              ],
+            ),
+          );
+          if (shouldOpen == true) {
+            await openAppSettings();
+          }
+        }
+        return;
+      }
+    } else if (Platform.isAndroid && _syncMode == 'album_download') {
+      // 仅下载模式需要写入 Camera 目录，必须拥有所有文件管理权限
+      final status = await Permission.manageExternalStorage.request();
+      if (!status.isGranted) {
+        if (mounted) {
+          ToastHelper.failure('需要所有文件管理权限才能写入相册');
+          final shouldOpen = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('权限不足'),
+              content: const Text('下载照片到手机相册需要"所有文件管理权限"，请在系统设置中开启。'),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(ctx, false),
@@ -997,8 +1025,8 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
       await sync.startSync(config);
       try {
         final result = await SyncService.instance.checkCloudAlbumDirs('cloudreve://my');
-        if (!(result['dcimExists'] as bool)) {
-          AppLogger.i('远程 DCIM 目录不存在，正在创建...');
+        if (!(result['cameraExists'] as bool? ?? false)) {
+          AppLogger.i('远程 DCIM/Camera 目录不完整，正在创建...');
           await SyncService.instance.createCloudAlbumDirs('cloudreve://my');
         }
       } catch (e) {

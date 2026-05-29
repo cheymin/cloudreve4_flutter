@@ -916,13 +916,15 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
   ) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 4)
-      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
     return CloudAlbumCheckResultFfi(
       dcimExists: dco_decode_bool(arr[0]),
       picturesExists: dco_decode_bool(arr[1]),
       dcimUri: dco_decode_opt_String(arr[2]),
       picturesUri: dco_decode_opt_String(arr[3]),
+      cameraExists: dco_decode_bool(arr[4]),
+      cameraUri: dco_decode_opt_String(arr[5]),
     );
   }
 
@@ -1265,11 +1267,15 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
     var var_picturesExists = sse_decode_bool(deserializer);
     var var_dcimUri = sse_decode_opt_String(deserializer);
     var var_picturesUri = sse_decode_opt_String(deserializer);
+    var var_cameraExists = sse_decode_bool(deserializer);
+    var var_cameraUri = sse_decode_opt_String(deserializer);
     return CloudAlbumCheckResultFfi(
       dcimExists: var_dcimExists,
       picturesExists: var_picturesExists,
       dcimUri: var_dcimUri,
       picturesUri: var_picturesUri,
+      cameraExists: var_cameraExists,
+      cameraUri: var_cameraUri,
     );
   }
 
@@ -1738,6 +1744,8 @@ class RustSyncApiApiImpl extends RustSyncApiApiImplPlatform
     sse_encode_bool(self.picturesExists, serializer);
     sse_encode_opt_String(self.dcimUri, serializer);
     sse_encode_opt_String(self.picturesUri, serializer);
+    sse_encode_bool(self.cameraExists, serializer);
+    sse_encode_opt_String(self.cameraUri, serializer);
   }
 
   @protected

@@ -1005,9 +1005,10 @@ impl Worker {
         }
     }
 
-    /// 6. 删除本地文件（DownloadOnly / Full / MirrorWcf / AlbumDownload — 远程删除触发的本地删除）
+    /// 6. 删除本地文件（DownloadOnly / Full / MirrorWcf — 远程删除触发的本地删除）
+    ///    AlbumDownload 跳过：远程删除不应删除本地相册照片
     async fn step_delete_local(&self, summary: &mut SyncSummary) {
-        if matches!(self.config.sync_mode, SyncMode::UploadOnly | SyncMode::AlbumUpload) {
+        if matches!(self.config.sync_mode, SyncMode::UploadOnly | SyncMode::AlbumUpload | SyncMode::AlbumDownload) {
             return;
         }
         let tid = &self.task_id;

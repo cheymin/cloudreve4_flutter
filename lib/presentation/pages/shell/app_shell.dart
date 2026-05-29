@@ -1,9 +1,11 @@
+import 'package:cloudreve4_flutter/presentation/providers/admin_provider.dart';
 import 'package:cloudreve4_flutter/presentation/providers/auth_provider.dart';
 import 'package:cloudreve4_flutter/presentation/providers/download_manager_provider.dart';
 import 'package:cloudreve4_flutter/presentation/providers/file_manager_provider.dart';
 import 'package:cloudreve4_flutter/presentation/providers/navigation_provider.dart';
 import 'package:cloudreve4_flutter/presentation/providers/sync_provider.dart';
 import 'package:cloudreve4_flutter/presentation/providers/upload_manager_provider.dart';
+import 'package:cloudreve4_flutter/presentation/providers/user_setting_provider.dart';
 import 'package:cloudreve4_flutter/presentation/widgets/announcement_dialog.dart';
 import 'package:cloudreve4_flutter/presentation/widgets/gesture_handler_mixin.dart';
 import 'package:cloudreve4_flutter/presentation/widgets/glassmorphism_container.dart';
@@ -57,6 +59,7 @@ class _AppShellState extends State<AppShell> with GestureHandlerMixin, TickerPro
   final Set<int> _visitedPageIndexes = <int>{0};
   late AnimationController _syncSpinController;
   String? _lastClipboardShareId;
+  String? _lastUserId;
 
   /// 同步 tab 仅在桌面平台显示，Android 入口在"我的"页面
   bool get _showSyncTab => defaultTargetPlatform != TargetPlatform.android && defaultTargetPlatform != TargetPlatform.iOS;
@@ -77,6 +80,7 @@ class _AppShellState extends State<AppShell> with GestureHandlerMixin, TickerPro
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _showPostLoginAnnouncement();
       _checkClipboardShareLink();
+      _lastUserId = context.read<AuthProvider>().user?.id;
     });
     WidgetsBinding.instance.addObserver(this);
   }
@@ -93,6 +97,57 @@ class _AppShellState extends State<AppShell> with GestureHandlerMixin, TickerPro
     if (state == AppLifecycleState.resumed) {
       _checkClipboardShareLink();
     }
+  }
+
+  /// 切换 tab 时刷新对应页面数据
+  void _handleTabSelected(int index) {
+    final nav = Provider.of<NavigationProvider>(context, listen: false);
+    nav.setIndex(index);
+
+    final userSetting = Provider.of<UserSettingProvider>(context, listen: false);
+    if (index == 0) {
+      // 概览页
+      userSetting.loadCapacity();
+    } else if (index == _pages.length - 1) {
+      // "我的"页面
+      userSetting.loadCapacity();
+    }
+  }
+
+  /// 检测用户身份变化（账号切换后重置所有 Provider 状态）
+  void _checkUserChange() {
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final currentUserId = auth.user?.id;
+    if (_lastUserId != null && currentUserId != _lastUserId) {
+      _lastUserId = currentUserId;
+      // 必须延迟到 build 完成后执行，否则在 build 阶段触发 notifyListeners 导致死循环
+      Future.microtask(() {
+        if (mounted) _resetProvidersOnUserChange();
+      });
+    } else if (_lastUserId == null && currentUserId != null) {
+      _lastUserId = currentUserId;
+    }
+  }
+
+  /// 用户切换后重置所有用户相关 Provider
+  void _resetProvidersOnUserChange() {
+    final fileManager = Provider.of<FileManagerProvider>(context, listen: false);
+    final userSetting = Provider.of<UserSettingProvider>(context, listen: false);
+    final admin = Provider.of<AdminProvider>(context, listen: false);
+    final sync = Provider.of<SyncProvider>(context, listen: false);
+
+    fileManager.clearFiles();
+    userSetting.clear();
+    admin.clear();
+
+    if (sync.engineInitialized) {
+      sync.resetSync();
+    }
+
+    // 重置导航到概览页并刷新数据
+    final nav = Provider.of<NavigationProvider>(context, listen: false);
+    nav.setIndex(0);
+    userSetting.loadCapacity();
   }
 
   Future<void> _showPostLoginAnnouncement() async {
@@ -193,8 +248,9 @@ class _AppShellState extends State<AppShell> with GestureHandlerMixin, TickerPro
           }
         }
       },
-      child: Consumer<NavigationProvider>(
-        builder: (context, navProvider, _) {
+      child: Consumer2<AuthProvider, NavigationProvider>(
+        builder: (context, auth, navProvider, _) {
+          _checkUserChange();
           if (isDesktop) {
             return _buildDesktopLayout(context, navProvider);
           }
@@ -270,7 +326,7 @@ class _AppShellState extends State<AppShell> with GestureHandlerMixin, TickerPro
               height: 64,
               labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
               selectedIndex: navProvider.currentIndex,
-              onDestinationSelected: (i) => navProvider.setIndex(i),
+              onDestinationSelected: _handleTabSelected,
               destinations: [
                 const NavigationDestination(
                   icon: Icon(LucideIcons.layoutDashboard),
@@ -348,7 +404,7 @@ class _AppShellState extends State<AppShell> with GestureHandlerMixin, TickerPro
         children: [
           NavigationRail(
             selectedIndex: navProvider.currentIndex,
-            onDestinationSelected: (i) => navProvider.setIndex(i),
+            onDestinationSelected: _handleTabSelected,
             leading: Padding(
               padding: const EdgeInsets.symmetric(vertical: 16),
               child: GestureDetector(

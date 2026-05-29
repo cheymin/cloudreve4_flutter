@@ -213,6 +213,19 @@ class AdminProvider extends ChangeNotifier {
 
   bool isUserSelected(int userId) => _selectedUserIds.contains(userId);
 
+  /// 清除管理员数据（切换账号时调用）
+  void clear() {
+    _groups = [];
+    _users = [];
+    _groupsPagination = null;
+    _usersPagination = null;
+    _selectedUserIds.clear();
+    _isSelectingUsers = false;
+    _errorMessage = null;
+    _state = AdminState.idle;
+    notifyListeners();
+  }
+
   void _setState(AdminState state) {
     _state = state;
     notifyListeners();

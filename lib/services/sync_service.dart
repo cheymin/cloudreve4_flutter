@@ -207,12 +207,14 @@ class SyncService {
   Future<Map<String, dynamic>> checkCloudAlbumDirs(String baseUri) async {
     AppLogger.d('[FFI] → checkCloudAlbumDirs: uri=$baseUri');
     final result = await ffi.checkCloudAlbumDirs(baseUri: baseUri);
-    AppLogger.d('[FFI] ← checkCloudAlbumDirs: dcim=${result.dcimExists}, pictures=${result.picturesExists}');
+    AppLogger.d('[FFI] ← checkCloudAlbumDirs: dcim=${result.dcimExists}, pictures=${result.picturesExists}, camera=${result.cameraExists}');
     return {
       'dcimExists': result.dcimExists,
       'picturesExists': result.picturesExists,
       'dcimUri': result.dcimUri,
       'picturesUri': result.picturesUri,
+      'cameraExists': result.cameraExists,
+      'cameraUri': result.cameraUri,
     };
   }
 

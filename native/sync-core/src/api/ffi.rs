@@ -239,6 +239,8 @@ fn album_result_to_ffi(r: crate::models::CloudAlbumCheckResult) -> CloudAlbumChe
         pictures_exists: r.pictures_exists,
         dcim_uri: r.dcim_uri,
         pictures_uri: r.pictures_uri,
+        camera_exists: r.camera_exists,
+        camera_uri: r.camera_uri,
     }
 }
 

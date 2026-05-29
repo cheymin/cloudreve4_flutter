@@ -26,7 +26,7 @@ class SyncDefaults {
   static const String defaultLogLevel = 'info';
 
   // ===== Android 相册同步专用 =====
-  static const String defaultAndroidLocalRoot = '/storage/emulated/0/DCIM';
-  static const String defaultAndroidRemoteRoot = 'cloudreve://my/DCIM';
+  static const String defaultAndroidLocalRoot = '/storage/emulated/0/DCIM/Camera';
+  static const String defaultAndroidRemoteRoot = 'cloudreve://my/DCIM/Camera';
   static const String defaultAndroidSyncMode = 'album_upload';
 }

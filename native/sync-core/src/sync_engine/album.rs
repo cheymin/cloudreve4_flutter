@@ -47,17 +47,32 @@ impl SyncEngine {
         let files = self.api.list_files_page(base_uri, 0, 200, None).await?;
         let dcim_exists = files.files.iter().any(|f| f.name == "DCIM" && f.is_dir);
         let pictures_exists = files.files.iter().any(|f| f.name == "Pictures" && f.is_dir);
+        let dcim_uri = if dcim_exists { Some(format!("{}/DCIM", base_uri)) } else { None };
+
+        // 检查 DCIM/Camera 子目录
+        let camera_exists = if let Some(ref dcim_uri) = dcim_uri {
+            let dcim_files = self.api.list_files_page(dcim_uri, 0, 200, None).await?;
+            dcim_files.files.iter().any(|f| f.name == "Camera" && f.is_dir)
+        } else {
+            false
+        };
+
         Ok(CloudAlbumCheckResult {
             dcim_exists,
             pictures_exists,
-            dcim_uri: if dcim_exists { Some(format!("{}/DCIM", base_uri)) } else { None },
+            dcim_uri,
             pictures_uri: if pictures_exists { Some(format!("{}/Pictures", base_uri)) } else { None },
+            camera_exists,
+            camera_uri: if camera_exists { Some(format!("{}/DCIM/Camera", base_uri)) } else { None },
         })
     }
 
     pub async fn create_album_dirs(&self, base_uri: &str) -> Result<()> {
         self.api.create_directory(base_uri, "DCIM").await?;
         self.api.create_directory(base_uri, "Pictures").await?;
+        // 创建 DCIM/Camera 子目录
+        let dcim_uri = format!("{}/DCIM", base_uri);
+        self.api.create_directory(&dcim_uri, "Camera").await?;
         Ok(())
     }
 }

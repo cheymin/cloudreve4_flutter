@@ -981,11 +981,15 @@ impl SseDecode for crate::api::ffi_types::CloudAlbumCheckResultFfi {
         let mut var_picturesExists = <bool>::sse_decode(deserializer);
         let mut var_dcimUri = <Option<String>>::sse_decode(deserializer);
         let mut var_picturesUri = <Option<String>>::sse_decode(deserializer);
+        let mut var_cameraExists = <bool>::sse_decode(deserializer);
+        let mut var_cameraUri = <Option<String>>::sse_decode(deserializer);
         return crate::api::ffi_types::CloudAlbumCheckResultFfi {
             dcim_exists: var_dcimExists,
             pictures_exists: var_picturesExists,
             dcim_uri: var_dcimUri,
             pictures_uri: var_picturesUri,
+            camera_exists: var_cameraExists,
+            camera_uri: var_cameraUri,
         };
     }
 }
@@ -1490,6 +1494,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::ffi_types::CloudAlbumCheckRes
             self.pictures_exists.into_into_dart().into_dart(),
             self.dcim_uri.into_into_dart().into_dart(),
             self.pictures_uri.into_into_dart().into_dart(),
+            self.camera_exists.into_into_dart().into_dart(),
+            self.camera_uri.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -1887,6 +1893,8 @@ impl SseEncode for crate::api::ffi_types::CloudAlbumCheckResultFfi {
         <bool>::sse_encode(self.pictures_exists, serializer);
         <Option<String>>::sse_encode(self.dcim_uri, serializer);
         <Option<String>>::sse_encode(self.pictures_uri, serializer);
+        <bool>::sse_encode(self.camera_exists, serializer);
+        <Option<String>>::sse_encode(self.camera_uri, serializer);
     }
 }
 

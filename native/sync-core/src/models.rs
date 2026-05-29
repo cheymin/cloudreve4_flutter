@@ -640,4 +640,6 @@ pub struct CloudAlbumCheckResult {
     pub pictures_exists: bool,
     pub dcim_uri: Option<String>,
     pub pictures_uri: Option<String>,
+    pub camera_exists: bool,
+    pub camera_uri: Option<String>,
 }
