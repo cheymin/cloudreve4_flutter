@@ -45,6 +45,17 @@ impl SyncEngine {
                                 .map(|n| n.to_string_lossy().to_string())
                                 .unwrap_or_default();
 
+                            // Android 回收站：.trashed- 前缀视为本地删除，不重命名远程
+                            if new_name.starts_with(".trashed-") {
+                                if let Ok(Some(_)) = self.db.get_file_mapping(&root_id, &old_rel).await {
+                                    tracing::info!("检测到本地回收站重命名，视为删除: {} -> {}", old_rel, new_rel);
+                                    let _ = self.db.delete_file_mapping(&root_id, &old_rel).await;
+                                    handled_old_rels.insert(old_rel);
+                                    handled_new_rels.insert(new_rel);
+                                }
+                                continue;
+                            }
+
                             if let Ok(Some(mapping)) = self.db.get_file_mapping(&root_id, &old_rel).await {
                                 tracing::info!("检测到本地重命名: {} -> {}", old_rel, new_rel);
                                 rename_remote.push(RenameAction {
@@ -68,6 +79,21 @@ impl SyncEngine {
                                 tracing::trace!("本地移动被抑制(远程操作导致): {} -> {}", old_rel, new_rel);
                                 continue;
                             }
+                            let new_name = new_path.file_name()
+                                .map(|n| n.to_string_lossy().to_string())
+                                .unwrap_or_default();
+
+                            // Android 回收站：移动到 .trashed- 前缀文件，视为本地删除
+                            if new_name.starts_with(".trashed-") {
+                                if let Ok(Some(_)) = self.db.get_file_mapping(&root_id, &old_rel).await {
+                                    tracing::info!("检测到本地回收站移动，视为删除: {} -> {}", old_rel, new_rel);
+                                    let _ = self.db.delete_file_mapping(&root_id, &old_rel).await;
+                                    handled_old_rels.insert(old_rel);
+                                    handled_new_rels.insert(new_rel);
+                                }
+                                continue;
+                            }
+
                             if let Ok(Some(mapping)) = self.db.get_file_mapping(&root_id, &old_rel).await {
                                 let remote_root = { self.config.read().await.remote_root.clone() };
                                 let new_rel_path = std::path::PathBuf::from(&new_rel);
@@ -110,6 +136,7 @@ impl SyncEngine {
                 let file_name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
                 if crate::fs_scanner::SKIP_NAMES.iter().any(|s| file_name == *s)
                     || file_name.starts_with(".sync_")
+                    || file_name.starts_with(".trashed-")
                     || crate::utils::is_conflict_file(&file_name) {
                     continue;
                 }
