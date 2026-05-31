@@ -53,10 +53,10 @@ impl SyncEngine {
         let now = std::time::Instant::now();
         self.hydration_cache.retain(|_, (_, ts)| now.duration_since(*ts).as_secs() < 300);
 
-        // 尝试从缓存获取已下载的数据
-        let data = if let Some(cached) = self.hydration_cache.get(&remote_uri) {
+        // 尝试从缓存获取已下载的数据；cache miss 时下载并标记 is_new_download
+        let (data, is_new_download) = if let Some(cached) = self.hydration_cache.get(&remote_uri) {
             tracing::debug!("WCF 水合缓存命中: {}", remote_uri);
-            cached.0.clone()
+            (cached.0.clone(), false)
         } else {
             tracing::info!("WCF 水合下载: {} ({}bytes)", remote_uri, remote_size);
             let config = self.snapshot_worker_config().await;
@@ -87,10 +87,29 @@ impl SyncEngine {
             match download_result {
                 Ok(data) => {
                     self.hydration_cache.insert(remote_uri.clone(), (data.clone(), std::time::Instant::now()));
-                    data
+                    (data, true)
                 }
                 Err(e) => {
                     tracing::error!("WCF 水合下载失败: {}: {}", remote_uri, e);
+                    // 下载失败时记录一次统计
+                    let now_str = chrono::Utc::now().to_rfc3339();
+                    let task_id = format!("hydration_{}", uuid::Uuid::new_v4());
+                    if let Err(db_err) = self.db.record_standalone_task_item(
+                        &crate::models::WorkerTrigger::Hydration,
+                        &crate::models::SyncTaskItem {
+                            id: 0,
+                            task_id,
+                            relative_path: remote_uri.clone(),
+                            action_type: crate::models::TaskActionType::Hydration,
+                            status: crate::models::TaskItemStatus::Failed,
+                            file_size: remote_size,
+                            error_message: Some(e.to_string()),
+                            created_at: now_str.clone(),
+                            updated_at: now_str,
+                        },
+                    ).await {
+                        tracing::warn!("WCF 水合失败统计记录失败: {}", db_err);
+                    }
                     let _ = crate::platform::wcf::WcfPlatformAdapter::reject_fetch_data(
                         request.connection_key, request.transfer_key,
                     );
@@ -122,23 +141,47 @@ impl SyncEngine {
             Ok(_) => {
                 tracing::debug!("WCF 水合数据推送: {} offset={} len={}", remote_uri, offset, transfer_data.len());
 
-                if let Ok(Some(mapping)) = self.db.find_mapping_by_remote_uri(&root_id, &remote_uri).await {
-                    self.suppress_paths.insert(mapping.local_path.to_string_lossy().into_owned(), std::time::Instant::now());
-                    let _ = self.db.upsert_file_mapping(&FileMapping {
-                        id: mapping.id,
-                        sync_root_id: mapping.sync_root_id,
-                        local_path: mapping.local_path.clone(),
-                        remote_uri: mapping.remote_uri.clone(),
-                        remote_file_id: mapping.remote_file_id.clone(),
-                        local_hash: None,
-                        remote_hash: if remote_hash.is_empty() { mapping.remote_hash.clone() } else { Some(remote_hash.clone()) },
-                        local_mtime: mapping.local_mtime,
-                        remote_mtime: mapping.remote_mtime,
-                        local_size: mapping.local_size,
-                        remote_size: Some(remote_size),
-                        sync_status: SyncFileStatus::Synced,
-                        is_placeholder: false,
-                    }).await;
+                // 仅在首次下载（cache miss）时更新映射和记录统计，避免同一文件多次 range 请求重复计数
+                if is_new_download {
+                    if let Ok(Some(mapping)) = self.db.find_mapping_by_remote_uri(&root_id, &remote_uri).await {
+                        self.suppress_paths.insert(mapping.local_path.to_string_lossy().into_owned(), std::time::Instant::now());
+                        let _ = self.db.upsert_file_mapping(&FileMapping {
+                            id: mapping.id,
+                            sync_root_id: mapping.sync_root_id,
+                            local_path: mapping.local_path.clone(),
+                            remote_uri: mapping.remote_uri.clone(),
+                            remote_file_id: mapping.remote_file_id.clone(),
+                            local_hash: None,
+                            remote_hash: if remote_hash.is_empty() { mapping.remote_hash.clone() } else { Some(remote_hash.clone()) },
+                            local_mtime: mapping.local_mtime,
+                            remote_mtime: mapping.remote_mtime,
+                            local_size: mapping.local_size,
+                            remote_size: Some(remote_size),
+                            sync_status: SyncFileStatus::Synced,
+                            is_placeholder: false,
+                        }).await;
+
+                        // 记录水合操作到统计
+                        let now_str = chrono::Utc::now().to_rfc3339();
+                        let local_path_str = mapping.local_path.to_string_lossy().to_string();
+                        let task_id = format!("hydration_{}", uuid::Uuid::new_v4());
+                        if let Err(e) = self.db.record_standalone_task_item(
+                            &crate::models::WorkerTrigger::Hydration,
+                            &crate::models::SyncTaskItem {
+                                id: 0,
+                                task_id,
+                                relative_path: local_path_str,
+                                action_type: crate::models::TaskActionType::Hydration,
+                                status: crate::models::TaskItemStatus::Completed,
+                                file_size: remote_size,
+                                error_message: None,
+                                created_at: now_str.clone(),
+                                updated_at: now_str,
+                            },
+                        ).await {
+                            tracing::warn!("WCF 水合统计记录失败: {}", e);
+                        }
+                    }
                 }
             }
             Err(e) => {

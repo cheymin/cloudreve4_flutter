@@ -61,6 +61,7 @@ impl SyncEngine {
                     self._create_placeholder_for_remote(
                         &relative, &remote_entry, local_root, &root_id,
                     ).await;
+                    self._record_wcf_stats(&relative, TaskActionType::CreatePlaceholder, remote_entry.size, None).await;
                 } else {
                     let plan = SyncPlan {
                         downloads: vec![SyncAction {
@@ -106,7 +107,8 @@ impl SyncEngine {
                 }
 
                 let local_path = local_root.join(&relative);
-                if local_path.exists() {
+                let existed = local_path.exists();
+                if existed {
                     if local_path.is_dir() {
                         let _ = tokio::fs::remove_dir_all(&local_path).await;
                     } else {
@@ -116,6 +118,11 @@ impl SyncEngine {
                 }
                 let _ = self.db.delete_file_mapping(&root_id, &relative).await;
                 self.suppress_paths.insert(relative.clone(), std::time::Instant::now());
+
+                // MirrorWcf: 远程删除 → 删本地，记录统计
+                if is_mirror_wcf && existed {
+                    self._record_wcf_stats(&relative, TaskActionType::DeleteLocal, 0, None).await;
+                }
             }
             RemoteFileEvent::Renamed { old_uri, new_entry } => {
                 let old_relative = crate::diff::remote_relative_path(
@@ -156,6 +163,10 @@ impl SyncEngine {
                     let remote_entry = self.get_remote_entry_or_fallback(new_entry).await;
                     self._create_placeholder_for_remote(
                         &new_relative, &remote_entry, local_root, &root_id,
+                    ).await;
+                    self._record_wcf_stats(
+                        &format!("{} -> {}", old_relative, new_relative),
+                        TaskActionType::Rename, 0, None,
                     ).await;
                 } else {
                     let remote_entry = self.get_remote_entry_or_fallback(new_entry).await;
@@ -215,6 +226,10 @@ impl SyncEngine {
                     self._create_placeholder_for_remote(
                         &new_relative, &remote_entry, local_root, &root_id,
                     ).await;
+                    self._record_wcf_stats(
+                        &format!("{} -> {}", old_relative, new_relative),
+                        TaskActionType::Move, 0, None,
+                    ).await;
                 } else {
                     let remote_entry = self.get_remote_entry_or_fallback(new_entry).await;
                     let plan = SyncPlan {
@@ -233,6 +248,39 @@ impl SyncEngine {
                     ).await;
                 }
             }
+        }
+    }
+
+    /// MirrorWcf 专用：记录绕过 WorkerPool 的操作统计
+    async fn _record_wcf_stats(
+        &self,
+        relative_path: &str,
+        action_type: TaskActionType,
+        file_size: u64,
+        error_message: Option<String>,
+    ) {
+        let now = chrono::Utc::now().to_rfc3339();
+        let status = if error_message.is_none() {
+            TaskItemStatus::Completed
+        } else {
+            TaskItemStatus::Failed
+        };
+        let task_id = format!("wcf_{}", uuid::Uuid::new_v4());
+        if let Err(e) = self.db.record_standalone_task_item(
+            &WorkerTrigger::WcfEvent,
+            &SyncTaskItem {
+                id: 0,
+                task_id,
+                relative_path: relative_path.to_string(),
+                action_type,
+                status,
+                file_size,
+                error_message,
+                created_at: now.clone(),
+                updated_at: now,
+            },
+        ).await {
+            tracing::warn!("WCF 统计记录失败: {}", e);
         }
     }
 

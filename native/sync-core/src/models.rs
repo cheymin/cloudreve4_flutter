@@ -455,6 +455,10 @@ pub enum WorkerTrigger {
     InitialSync,
     Continuous,
     Manual,
+    /// WCF 按需水合
+    Hydration,
+    /// WCF 远程事件（占位符/删除/重命名/移动）
+    WcfEvent,
 }
 
 impl WorkerTrigger {
@@ -463,6 +467,8 @@ impl WorkerTrigger {
             WorkerTrigger::InitialSync => "initial_sync",
             WorkerTrigger::Continuous => "continuous",
             WorkerTrigger::Manual => "manual",
+            WorkerTrigger::Hydration => "hydration",
+            WorkerTrigger::WcfEvent => "wcf_event",
         }
     }
 }
@@ -554,6 +560,8 @@ pub enum TaskActionType {
     MkdirLocal,
     ConflictResolve,
     CreatePlaceholder,
+    /// WCF 按需水合（用户打开占位符文件时触发下载）
+    Hydration,
 }
 
 impl TaskActionType {
@@ -569,6 +577,7 @@ impl TaskActionType {
             TaskActionType::MkdirLocal => "mkdir_local",
             TaskActionType::ConflictResolve => "conflict_resolve",
             TaskActionType::CreatePlaceholder => "create_placeholder",
+            TaskActionType::Hydration => "hydration",
         }
     }
 }
@@ -588,6 +597,7 @@ impl std::str::FromStr for TaskActionType {
             "mkdir_local" => Ok(TaskActionType::MkdirLocal),
             "conflict_resolve" => Ok(TaskActionType::ConflictResolve),
             "create_placeholder" => Ok(TaskActionType::CreatePlaceholder),
+            "hydration" => Ok(TaskActionType::Hydration),
             _ => Err(()),
         }
     }

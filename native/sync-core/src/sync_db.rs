@@ -728,6 +728,46 @@ impl SyncDb {
         Ok(conn.last_insert_rowid())
     }
 
+    /// 创建独立的 task + task_item 记录（用于 WCF 等绕过 WorkerPool 的操作统计）
+    pub async fn record_standalone_task_item(
+        &self,
+        trigger: &WorkerTrigger,
+        item: &SyncTaskItem,
+    ) -> Result<()> {
+        let conn = self.write_conn.lock().await;
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
+            "INSERT INTO sync_task (id, trigger, total_count, completed_count, failed_count, status, created_at, updated_at, finished_at)
+             VALUES (?1, ?2, 1, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![
+                item.task_id,
+                trigger.as_str(),
+                if item.status == TaskItemStatus::Failed { 0 } else { 1 },
+                if item.status == TaskItemStatus::Failed { 1 } else { 0 },
+                if item.status == TaskItemStatus::Failed { WorkerStatus::Failed.as_str() } else { WorkerStatus::Completed.as_str() },
+                item.created_at,
+                item.updated_at,
+                item.updated_at,
+            ],
+        )?;
+        tx.execute(
+            "INSERT INTO sync_task_item (task_id, relative_path, action_type, status, file_size, error_message, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![
+                item.task_id,
+                item.relative_path,
+                item.action_type.as_str(),
+                item.status.as_str(),
+                item.file_size,
+                item.error_message,
+                item.created_at,
+                item.updated_at,
+            ],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
     /// 批量插入 task_item（单次持锁，用事务包裹）
     pub async fn create_sync_task_items_batch(&self, items: &[SyncTaskItem]) -> Result<()> {
         let conn = self.write_conn.lock().await;
@@ -850,6 +890,8 @@ impl SyncDb {
     }
 
     /// 从 DB 聚合累积统计（跨所有同步任务）
+    /// MirrorWcf 模式：downloaded 包含 download + create_placeholder + hydration；
+    ///                其他字段同理聚合语义相近的 action_type
     pub async fn get_cum_stats(&self) -> Result<SyncCumStats> {
         let pool = self.read_pool.clone();
         let result = tokio::task::spawn_blocking(move || -> Result<SyncCumStats> {
@@ -861,7 +903,7 @@ impl SyncDb {
             ).unwrap_or(0);
 
             let downloaded: u32 = conn.query_row(
-                "SELECT COUNT(*) FROM sync_task_item WHERE action_type = 'download' AND status = 'completed'",
+                "SELECT COUNT(*) FROM sync_task_item WHERE action_type IN ('download', 'create_placeholder', 'hydration') AND status = 'completed'",
                 [], |r| r.get(0),
             ).unwrap_or(0);
 
@@ -975,6 +1017,8 @@ fn sync_task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SyncTask> {
         "initial_sync" => WorkerTrigger::InitialSync,
         "continuous" => WorkerTrigger::Continuous,
         "manual" => WorkerTrigger::Manual,
+        "hydration" => WorkerTrigger::Hydration,
+        "wcf_event" => WorkerTrigger::WcfEvent,
         _ => WorkerTrigger::Manual,
     };
     let status_str: String = row.get(5)?;

@@ -432,6 +432,18 @@ impl SyncEngine {
                 tracing::debug!("仅上传模式: 本地删除仅清理映射，不删除远程: {}", relative);
             }
         }
+
+        // MirrorWcf DeleteLocalOnly 模式下：本地删除仅清理 DB 映射，保留远程可重新水合
+        let wcf_delete_local_only = matches!(sync_mode, SyncMode::MirrorWcf)
+            && !matches!(wcf_delete_mode, WcfDeleteMode::SyncRemote);
+        if !delete_paths.is_empty() && wcf_delete_local_only {
+            for relative in &delete_paths {
+                if let Ok(Some(_)) = self.db.get_file_mapping(&root_id, relative).await {
+                    let _ = self.db.delete_file_mapping(&root_id, relative).await;
+                    tracing::info!("MirrorWcf(仅删除本地): 清理映射，保留远程: {}", relative);
+                }
+            }
+        }
     }
 }
 
