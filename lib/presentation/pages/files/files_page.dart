@@ -4,6 +4,7 @@ import 'dart:ui';
 
 import 'package:cross_file/cross_file.dart';
 import 'package:desktop_drop/desktop_drop.dart';
+import 'package:flutter/services.dart';
 import 'package:cloudreve4_flutter/data/models/file_model.dart';
 import 'package:cloudreve4_flutter/services/file_service.dart';
 import 'package:cloudreve4_flutter/services/upload_service.dart';
@@ -53,10 +54,15 @@ class _FilesPageState extends State<FilesPage> {
   // 桌面端拖拽状态
   bool _isDraggingOver = false;
 
+  // 滑动手势追踪
+  Offset? _swipeStartPos;
+  DateTime? _swipeStartTime;
+
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScrollForPagination);
+    HardwareKeyboard.instance.addHandler(_handleKeyEvent);
 
     Future.delayed(const Duration(milliseconds: 100), () {
       if (mounted) {
@@ -97,6 +103,7 @@ class _FilesPageState extends State<FilesPage> {
     _scrollController.dispose();
     _breadcrumbController.dispose();
     _fabShowTimer?.cancel();
+    HardwareKeyboard.instance.removeHandler(_handleKeyEvent);
     UploadService.instance.onUploadCompleted = null;
     super.dispose();
   }
@@ -108,6 +115,42 @@ class _FilesPageState extends State<FilesPage> {
     final position = _scrollController.position;
     if (position.pixels >= position.maxScrollExtent - 320) {
       fileManager.loadMoreFiles();
+    }
+  }
+
+  bool _handleKeyEvent(KeyEvent event) {
+    if (!mounted || event is! KeyDownEvent) return false;
+    // Ctrl+F / Cmd+F → 打开搜索
+    if (event.logicalKey == LogicalKeyboardKey.keyF &&
+        (HardwareKeyboard.instance.isControlPressed || HardwareKeyboard.instance.isMetaPressed)) {
+      if (ModalRoute.of(context)?.isCurrent == false) return false;
+      final nav = Provider.of<NavigationProvider>(context, listen: false);
+      if (nav.currentIndex == 1 && !SearchDialog.isShowing) {
+        SearchDialog.show(context);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _onPointerDown(PointerDownEvent event) {
+    _swipeStartPos = event.position;
+    _swipeStartTime = DateTime.now();
+  }
+
+  void _onPointerUp(PointerUpEvent event) {
+    if (_swipeStartPos == null || _swipeStartTime == null) return;
+    final dx = event.position.dx - _swipeStartPos!.dx;
+    final dy = event.position.dy - _swipeStartPos!.dy;
+    final duration = DateTime.now().difference(_swipeStartTime!);
+    _swipeStartPos = null;
+    _swipeStartTime = null;
+    // 从右往左快速滑动 → 返回上一级
+    if (dx < -150 && dx.abs() > dy.abs() * 1.5 && duration.inMilliseconds < 500) {
+      final fileManager = Provider.of<FileManagerProvider>(context, listen: false);
+      if (fileManager.currentPath != '/') {
+        fileManager.goBack();
+      }
     }
   }
 
@@ -197,13 +240,17 @@ class _FilesPageState extends State<FilesPage> {
   Widget build(BuildContext context) {
     final isDesktop = MediaQuery.of(context).size.width >= 1000;
 
-    return Scaffold(
-      key: _scaffoldKey,
-      appBar: _buildAppBar(context),
-      body: _buildBody(context),
-      bottomNavigationBar: _buildBottomBar(context),
-      endDrawer: _infoFile != null ? FileInfoPanel(file: _infoFile!) : null,
-      floatingActionButton: isDesktop ? null : _buildSpeedDialFAB(context),
+    return Listener(
+      onPointerDown: _onPointerDown,
+      onPointerUp: _onPointerUp,
+      child: Scaffold(
+        key: _scaffoldKey,
+        appBar: _buildAppBar(context),
+        body: _buildBody(context),
+        bottomNavigationBar: _buildBottomBar(context),
+        endDrawer: _infoFile != null ? FileInfoPanel(file: _infoFile!) : null,
+        floatingActionButton: isDesktop ? null : _buildSpeedDialFAB(context),
+      ),
     );
   }
 

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
@@ -17,7 +18,12 @@ import 'glassmorphism_container.dart';
 class SearchDialog extends StatefulWidget {
   const SearchDialog({super.key});
 
+  static bool _isShowing = false;
+  static bool get isShowing => _isShowing;
+
   static Future<void> show(BuildContext context) {
+    if (_isShowing) return Future.value();
+    _isShowing = true;
     return showGeneralDialog(
       context: context,
       barrierDismissible: true,
@@ -39,7 +45,7 @@ class SearchDialog extends StatefulWidget {
         );
       },
       pageBuilder: (context, animation, secondaryAnimation) => const SearchDialog(),
-    );
+    ).whenComplete(() => _isShowing = false);
   }
 
   @override
@@ -181,25 +187,40 @@ class _SearchDialogState extends State<SearchDialog> {
     final isWide = screenWidth >= 600;
     final dialogWidth = isWide ? 560.0 : screenWidth - 32.0;
 
-    return Center(
-      child: Container(
-        width: dialogWidth,
-        constraints: BoxConstraints(maxHeight: screenHeight * 0.75),
-        child: GlassmorphismContainer(
-          borderRadius: 16,
-          sigmaX: 20,
-          sigmaY: 20,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: Material(
-              color: Colors.transparent,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _buildSearchInput(context),
-                  const Divider(height: 1),
-                  Flexible(child: _buildBody(context)),
-                ],
+    return Shortcuts(
+      shortcuts: <ShortcutActivator, Intent>{
+        const SingleActivator(LogicalKeyboardKey.escape): DismissIntent(),
+      },
+      child: Actions(
+        actions: <Type, Action<Intent>>{
+          DismissIntent: CallbackAction<DismissIntent>(
+            onInvoke: (_) {
+              Navigator.of(context).pop();
+              return null;
+            },
+          ),
+        },
+        child: Center(
+          child: Container(
+            width: dialogWidth,
+            constraints: BoxConstraints(maxHeight: screenHeight * 0.75),
+            child: GlassmorphismContainer(
+              borderRadius: 16,
+              sigmaX: 20,
+              sigmaY: 20,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: Material(
+                  color: Colors.transparent,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildSearchInput(context),
+                      const Divider(height: 1),
+                      Flexible(child: _buildBody(context)),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
