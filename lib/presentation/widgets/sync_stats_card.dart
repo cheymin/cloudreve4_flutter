@@ -40,7 +40,7 @@ class SyncStatsCard extends StatelessWidget {
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: bgColor,
-        borderRadius: BorderRadius.circular(32),
+        borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.04),
@@ -62,21 +62,14 @@ class SyncStatsCard extends StatelessWidget {
                   child: PieChart(
                     PieChartData(
                       sectionsSpace: 4,
-                      centerSpaceRadius: 36,
+                      centerSpaceRadius: 42,
                       sections: _buildSections(),
                     ),
                   ),
                 ),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.sync_rounded, color: theme.colorScheme.primary, size: 20),
-                    const SizedBox(height: 2),
-                    Text(
-                      '$_total',
-                      style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-                    ),
-                  ],
+                Text(
+                  '$_total',
+                  style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.bold),
                 ),
               ],
             ),

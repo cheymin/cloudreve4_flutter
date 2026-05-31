@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../../data/models/sync_task_model.dart';
 import '../../providers/sync_provider.dart';
+import '../../widgets/sync_stats_card.dart';
 import 'sync_settings_page.dart';
 
 /// 移动端同步详情页面 - 展示实时同步状态和任务列表
@@ -50,9 +51,25 @@ class _SyncPageAndroidState extends State<SyncPageAndroid> {
         child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
-            SliverToBoxAdapter(child: _buildHeader(sync, theme)),
-            if (sync.lastSummary != null)
-              SliverToBoxAdapter(child: _buildSummaryChips(sync, theme)),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: _buildHeader(sync, theme),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                child: SyncStatsCard(
+                  uploaded: sync.cumUploaded,
+                  downloaded: sync.cumDownloaded,
+                  renamed: sync.cumRenamed,
+                  moved: sync.cumMoved,
+                  conflicts: sync.cumConflicts,
+                  failed: sync.cumFailed,
+                ),
+              ),
+            ),
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(20, 24, 20, 12),
@@ -121,17 +138,26 @@ class _SyncPageAndroidState extends State<SyncPageAndroid> {
             theme.colorScheme.tertiaryContainer.withValues(alpha: 0.3),
           ],
         ),
-        borderRadius: const BorderRadius.only(
-          bottomLeft: Radius.circular(32),
-          bottomRight: Radius.circular(32),
-        ),
+        borderRadius: BorderRadius.circular(24),
       ),
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 28),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 左右布局：左侧旋转圆 + 右侧统计
+          // 顶部：状态文字居中
+          Center(
+            child: Text(
+              statusText,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: statusColor,
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          // 中间：左侧旋转圆 + 右侧统计
           Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               // 左侧：旋转圆形指示器
               SizedBox(
@@ -194,31 +220,15 @@ class _SyncPageAndroidState extends State<SyncPageAndroid> {
                 ),
               ),
               const SizedBox(width: 24),
-              // 右侧：状态标题 + 统计行
-              Expanded(
+              // 右侧：统计行
+              IntrinsicWidth(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      statusText,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    if (sync.errorMessage != null)
-                      Text(
-                        sync.errorMessage!,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.error,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    const SizedBox(height: 12),
                     _buildStatRow(Icons.file_upload_outlined, '${sync.cumUploaded}', '已上传', Colors.blue, theme),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 8),
                     _buildStatRow(Icons.file_download_outlined, '${sync.cumDownloaded}', '已下载', Colors.green, theme),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 8),
                     _buildStatRow(Icons.warning_amber_outlined, '${sync.cumConflicts}', '冲突', Colors.orange, theme),
                   ],
                 ),
@@ -298,43 +308,6 @@ class _SyncPageAndroidState extends State<SyncPageAndroid> {
         const SizedBox(width: 4),
         Text(label, style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor)),
       ],
-    );
-  }
-
-  Widget _buildSummaryChips(SyncProvider sync, ThemeData theme) {
-    final s = sync.lastSummary!;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 4,
-        children: [
-          _summaryChip(theme, '上传', s.uploaded, Colors.blue),
-          _summaryChip(theme, '下载', s.downloaded, Colors.green),
-          _summaryChip(theme, '冲突', s.conflicts, Colors.orange),
-          _summaryChip(theme, '失败', s.failed, theme.colorScheme.error),
-          _summaryChip(theme, '跳过', s.skipped, theme.hintColor),
-          _summaryChip(theme, '删本地', s.deletedLocal, theme.colorScheme.error),
-          _summaryChip(theme, '删远程', s.deletedRemote, theme.colorScheme.error),
-        ],
-      ),
-    );
-  }
-
-  Widget _summaryChip(ThemeData theme, String label, int value, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text('$label ', style: theme.textTheme.bodySmall?.copyWith(color: color)),
-          Text('$value', style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.bold, color: color)),
-        ],
-      ),
     );
   }
 

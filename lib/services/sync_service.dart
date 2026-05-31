@@ -196,11 +196,11 @@ class SyncService {
     )).toList();
   }
 
-  /// 从 DB 聚合累积统计（跨所有同步任务的权威数据源）
+  /// 从 DB 聚合累积统计（轮询高频调用，trace 级别）
   Future<Map<String, int>> getCumStats() async {
-    AppLogger.d('[FFI] → getSyncCumStats');
+    AppLogger.t('[FFI] → getSyncCumStats');
     final stats = await ffi.getSyncCumStats();
-    AppLogger.d('[FFI] ← getSyncCumStats: uploaded=${stats.uploaded}, downloaded=${stats.downloaded}, failed=${stats.failed}, conflicts=${stats.conflicts}');
+    AppLogger.t('[FFI] ← getSyncCumStats: uploaded=${stats.uploaded}, downloaded=${stats.downloaded}, failed=${stats.failed}, conflicts=${stats.conflicts}');
     return {
       'uploaded': stats.uploaded,
       'downloaded': stats.downloaded,
