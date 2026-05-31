@@ -890,8 +890,7 @@ impl SyncDb {
     }
 
     /// 从 DB 聚合累积统计（跨所有同步任务）
-    /// MirrorWcf 模式：downloaded 包含 download + create_placeholder + hydration；
-    ///                其他字段同理聚合语义相近的 action_type
+    /// downloaded 包含 download + hydration（create_placeholder 不计入，仅重建映射非实际下载）
     pub async fn get_cum_stats(&self) -> Result<SyncCumStats> {
         let pool = self.read_pool.clone();
         let result = tokio::task::spawn_blocking(move || -> Result<SyncCumStats> {
@@ -903,7 +902,7 @@ impl SyncDb {
             ).unwrap_or(0);
 
             let downloaded: u32 = conn.query_row(
-                "SELECT COUNT(*) FROM sync_task_item WHERE action_type IN ('download', 'create_placeholder', 'hydration') AND status = 'completed'",
+                "SELECT COUNT(*) FROM sync_task_item WHERE action_type IN ('download', 'hydration') AND status = 'completed'",
                 [], |r| r.get(0),
             ).unwrap_or(0);
 

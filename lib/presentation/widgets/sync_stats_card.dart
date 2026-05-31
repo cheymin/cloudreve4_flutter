@@ -76,8 +76,12 @@ class SyncStatsCard extends StatelessWidget {
             width: double.infinity,
             padding: const EdgeInsets.all(24),
             decoration: decoration,
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Center(child: Text('同步数据概览', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600))),
+                const SizedBox(height: 16),
+                Row(children: [
                 // 饼图
                 Expanded(
                   flex: 4,
@@ -143,6 +147,8 @@ class SyncStatsCard extends StatelessWidget {
                 ),
               ],
             ),
+            ],
+            ),
           );
         }
 
@@ -152,7 +158,10 @@ class SyncStatsCard extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
           decoration: decoration,
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Center(child: Text('同步数据概览', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600))),
+              const SizedBox(height: 12),
               // 上半区：饼图 + 5 个主指标
               Row(
                 children: [
