@@ -1,0 +1,265 @@
+name: Build Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_android:
+        description: 'Build Android APK'
+        required: true
+        default: true
+        type: boolean
+      build_windows:
+        description: 'Build Windows EXE'
+        required: true
+        default: true
+        type: boolean
+      build_linux:
+        description: 'Build Linux'
+        required: false
+        default: false
+        type: boolean
+      build_web:
+        description: 'Build Web'
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        description: 'Release tag (e.g., v1.0.0)'
+        required: false
+        type: string
+
+env:
+  FLUTTER_VERSION: '3.41.6'
+
+jobs:
+  build-android:
+    if: ${{ inputs.build_android }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android, armv7-linux-androideabi, x86_64-linux-android, i686-linux-android
+
+      - name: Install Flutter Rust Bridge CLI
+        run: cargo install flutter_rust_bridge_codegen --version 2.12.0
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Generate Rust FFI bindings
+        run: |
+          cd native
+          cargo build --release
+          cd ..
+          flutter_rust_bridge_codegen generate
+
+      - name: Build APK
+        run: flutter build apk --release
+
+      - name: Build App Bundle (AAB)
+        run: flutter build appbundle --release
+
+      - name: Rename APK
+        run: |
+          mv build/app/outputs/flutter-apk/app-release.apk cloudreve4_flutter-${{ github.ref_name }}-android.apk || true
+          mv build/app/outputs/bundle/release/app-release.aab cloudreve4_flutter-${{ github.ref_name }}-android.aab || true
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: |
+            *.apk
+            *.aab
+          retention-days: 30
+
+  build-windows:
+    if: ${{ inputs.build_windows }}
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install Flutter Rust Bridge CLI
+        run: cargo install flutter_rust_bridge_codegen --version 2.12.0
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Generate Rust FFI bindings
+        shell: bash
+        run: |
+          cd native
+          cargo build --release
+          cd ..
+          flutter_rust_bridge_codegen generate
+
+      - name: Build Windows
+        run: flutter build windows --release
+
+      - name: Create ZIP archive
+        run: |
+          cd build/windows/x64/runner/Release
+          Compress-Archive -Path * -DestinationPath ../../../../../cloudreve4_flutter-${{ github.ref_name }}-windows.zip
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe
+          path: *.zip
+          retention-days: 30
+
+  build-linux:
+    if: ${{ inputs.build_linux }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev mpv libmpv-dev liblzma-dev libstdc++-12-dev
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Install Flutter Rust Bridge CLI
+        run: cargo install flutter_rust_bridge_codegen --version 2.12.0
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Generate Rust FFI bindings
+        run: |
+          cd native
+          cargo build --release
+          cd ..
+          flutter_rust_bridge_codegen generate
+
+      - name: Build Linux
+        run: flutter build linux --release
+
+      - name: Create TAR.GZ archive
+        run: |
+          cd build/linux/x64/release/bundle
+          tar -czvf ../../../../../cloudreve4_flutter-${{ github.ref_name }}-linux.tar.gz *
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-app
+          path: *.tar.gz
+          retention-days: 30
+
+  build-web:
+    if: ${{ inputs.build_web }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Build Web
+        run: flutter build web --release
+
+      - name: Create ZIP archive
+        run: |
+          cd build/web
+          zip -r ../../cloudreve4_flutter-${{ github.ref_name }}-web.zip *
+
+      - name: Upload Web artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-app
+          path: *.zip
+          retention-days: 30
+
+  create-release:
+    needs: [build-android, build-windows, build-linux, build-web]
+    if: ${{ inputs.release_tag != '' && always() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Display structure of downloaded files
+        run: ls -R artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          name: Release ${{ inputs.release_tag }}
+          body: |
+            ## Cloudreve4 Flutter ${{ inputs.release_tag }}
+
+            ### 下载说明
+            - **Android**: 下载 `.apk` 文件安装
+            - **Windows**: 下载 `.zip` 文件解压后运行 `cloudreve4_flutter.exe`
+            - **Linux**: 下载 `.tar.gz` 文件解压后运行 `cloudreve4_flutter`
+            - **Web**: 下载 `.zip` 文件部署到 Web 服务器
+
+            ### 更新日志
+            请查看 [README.md](https://github.com/${{ github.repository }}#readme) 了解功能详情。
+          files: |
+            artifacts/**/*.apk
+            artifacts/**/*.aab
+            artifacts/**/*.zip
+            artifacts/**/*.tar.gz
+          draft: false
+          prerelease: false
