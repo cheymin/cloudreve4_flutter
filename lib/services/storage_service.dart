@@ -220,4 +220,49 @@ class StorageService {
     }
     return id;
   }
+
+  // ===== 通用 Map/List 存储方法 =====
+
+  /// 获取 Map
+  Future<Map<String, dynamic>?> getMap(String key) async {
+    final json = await getString(key);
+    if (json == null || json.isEmpty) return null;
+    try {
+      return jsonDecode(json) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 设置 Map
+  Future<bool> setMap(String key, Map<String, dynamic> value) async {
+    try {
+      final json = jsonEncode(value);
+      return await setString(key, json);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 获取 String 列表
+  Future<List<String>?> getStringList(String key) async {
+    final json = await getString(key);
+    if (json == null || json.isEmpty) return null;
+    try {
+      final list = jsonDecode(json) as List<dynamic>;
+      return list.cast<String>();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 设置 String 列表
+  Future<bool> setStringList(String key, List<String> value) async {
+    try {
+      final json = jsonEncode(value);
+      return await setString(key, json);
+    } catch (_) {
+      return false;
+    }
+  }
 }
