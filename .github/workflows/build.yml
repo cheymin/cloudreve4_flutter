@@ -86,8 +86,8 @@ jobs:
         with:
           name: android-apk
           path: |
-            *.apk
-            *.aab
+            "*.apk"
+            "*.aab"
           retention-days: 30
 
   build-windows:
@@ -135,7 +135,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-exe
-          path: *.zip
+          path: "*.zip"
           retention-days: 30
 
   build-linux:
@@ -187,7 +187,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: linux-app
-          path: *.tar.gz
+          path: "*.tar.gz"
           retention-days: 30
 
   build-web:
@@ -219,7 +219,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: web-app
-          path: *.zip
+          path: "*.zip"
           retention-days: 30
 
   create-release:
