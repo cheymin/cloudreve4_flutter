@@ -1,10 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-import '../../../core/utils/app_logger.dart';
 import '../../../services/auto_backup_service.dart';
 import '../../../services/auto_backup_foreground_service.dart';
 import '../../widgets/toast_helper.dart';
