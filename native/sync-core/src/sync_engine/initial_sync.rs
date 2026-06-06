@@ -23,7 +23,11 @@ impl SyncEngine {
 
         let (local_root, remote_root, sync_mode) = {
             let config = self.config.read().await;
-            (config.local_root.clone(), config.remote_root.clone(), config.sync_mode.clone())
+            (
+                config.local_root.clone(),
+                config.remote_root.clone(),
+                config.sync_mode.clone(),
+            )
         };
         tracing::info!("开始初始同步, 模式={:?}", sync_mode);
 
@@ -47,7 +51,13 @@ impl SyncEngine {
         }
 
         let db_mappings = self.load_all_mappings().await?;
-        let plan = crate::diff::compute_diff(&local_files, &remote_files, &db_mappings, &remote_root, &sync_mode);
+        let plan = crate::diff::compute_diff(
+            &local_files,
+            &remote_files,
+            &db_mappings,
+            &remote_root,
+            &sync_mode,
+        );
         tracing::info!(
             "差异计算完成: 上传={}, 下载={}, 删本地={}, 删远程={}, 冲突={}",
             plan.uploads.len(),
@@ -83,7 +93,8 @@ impl SyncEngine {
                     self.db.clone(),
                     self.api.clone(),
                     config.clone(),
-                ).map_err(|e| crate::errors::SyncError::Internal(e.to_string()))?;
+                )
+                .map_err(|e| crate::errors::SyncError::Internal(e.to_string()))?;
                 let fetch_rx = adapter.take_fetch_receiver();
                 *self.wcf_fetch_rx.lock().unwrap() = fetch_rx;
                 let adapter_arc = std::sync::Arc::new(adapter);
@@ -99,7 +110,11 @@ impl SyncEngine {
         // MirrorFUSE 模式：初始化 FUSE 平台适配器（直接挂载到 local_root）
         #[cfg(feature = "linux-fuse")]
         if matches!(sync_mode, SyncMode::MirrorWcf) {
-            let already_initialized = self.fuse_adapter.lock().map(|g| g.is_some()).unwrap_or(false);
+            let already_initialized = self
+                .fuse_adapter
+                .lock()
+                .map(|g| g.is_some())
+                .unwrap_or(false);
             if !already_initialized {
                 let config = self.config.read().await;
                 let mount_path = config.local_root.clone();
@@ -108,12 +123,16 @@ impl SyncEngine {
                     self.db.clone(),
                     self.api.clone(),
                     config.clone(),
-                ).map_err(|e| crate::errors::SyncError::Internal(e.to_string()))?;
+                )
+                .map_err(|e| crate::errors::SyncError::Internal(e.to_string()))?;
 
                 // 注册所有远程文件到 FUSE inode 表
                 for remote in &remote_files {
                     let relative = crate::diff::remote_relative_path(
-                        &remote_root, &remote.path, &remote.name, remote.is_dir
+                        &remote_root,
+                        &remote.path,
+                        &remote.name,
+                        remote.is_dir,
                     );
                     let parent_rel = std::path::PathBuf::from(&relative)
                         .parent()
@@ -142,15 +161,25 @@ impl SyncEngine {
                 if let Ok(mut adapter_guard) = self.fuse_adapter.lock() {
                     *adapter_guard = Some(std::sync::Arc::new(adapter));
                 }
-                tracing::info!("MirrorFUSE: FUSE 平台适配器已初始化, 挂载点={}, inode 数={}", mount_path.display(), remote_files.len());
+                tracing::info!(
+                    "MirrorFUSE: FUSE 平台适配器已初始化, 挂载点={}, inode 数={}",
+                    mount_path.display(),
+                    remote_files.len()
+                );
             } else {
                 tracing::info!("MirrorFUSE: FUSE 平台适配器已存在，跳过重复初始化");
             }
         }
 
-        let result = self.worker_pool.submit(
-            plan, worker_config, WorkerTrigger::InitialSync, conflict_resolver,
-        ).await;
+        let result = self
+            .worker_pool
+            .submit(
+                plan,
+                worker_config,
+                WorkerTrigger::InitialSync,
+                conflict_resolver,
+            )
+            .await;
 
         match result {
             Ok(summary) => {

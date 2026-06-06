@@ -79,7 +79,10 @@ impl WindowsAdapter {
             let provider_version_pcw = PCWSTR(provider_version_w.as_ptr());
 
             let provider_id = GUID::from_values(
-                0x4E_5F_8C_D7, 0xA2_B1, 0x43_9F, [0x8C, 0x12, 0xD5, 0xE7, 0xF3, 0x21, 0x9A, 0xB4],
+                0x4E_5F_8C_D7,
+                0xA2_B1,
+                0x43_9F,
+                [0x8C, 0x12, 0xD5, 0xE7, 0xF3, 0x21, 0x9A, 0xB4],
             );
 
             let root_identity = b"cloudreve-sync-root".to_vec();
@@ -260,13 +263,7 @@ impl WindowsAdapter {
             let file = std::fs::File::open(file_path)?;
             let handle = HANDLE(file.as_raw_handle() as *mut _);
 
-            CfHydratePlaceholder(
-                handle,
-                0,
-                -1i64,
-                CF_HYDRATE_FLAG_NONE,
-                None,
-            )?;
+            CfHydratePlaceholder(handle, 0, -1i64, CF_HYDRATE_FLAG_NONE, None)?;
 
             tracing::debug!("水合完成: {}", file_path.display());
             Ok(())
@@ -279,13 +276,7 @@ impl WindowsAdapter {
             let file = std::fs::File::open(file_path)?;
             let handle = HANDLE(file.as_raw_handle() as *mut _);
 
-            CfDehydratePlaceholder(
-                handle,
-                0,
-                -1i64,
-                CF_DEHYDRATE_FLAG_NONE,
-                None,
-            )?;
+            CfDehydratePlaceholder(handle, 0, -1i64, CF_DEHYDRATE_FLAG_NONE, None)?;
 
             tracing::debug!("脱水完成: {}", file_path.display());
             Ok(())
@@ -337,16 +328,17 @@ impl WindowsAdapter {
             };
 
             CfExecute(&op_info, &mut op_params)?;
-            tracing::debug!("CfExecute TRANSFER_DATA 成功: offset={}, len={}", offset, data.len());
+            tracing::debug!(
+                "CfExecute TRANSFER_DATA 成功: offset={}, len={}",
+                offset,
+                data.len()
+            );
             Ok(())
         }
     }
 
     /// 通过 CfExecute 报告水合失败
-    pub fn reject_fetch_data(
-        connection_key: i64,
-        transfer_key: i64,
-    ) -> anyhow::Result<()> {
+    pub fn reject_fetch_data(connection_key: i64, transfer_key: i64) -> anyhow::Result<()> {
         unsafe {
             let op_info = CF_OPERATION_INFO {
                 StructSize: std::mem::size_of::<CF_OPERATION_INFO>() as u32,
@@ -392,7 +384,8 @@ unsafe extern "system" fn cf_fetch_data_callback(
         std::slice::from_raw_parts(
             info.FileIdentity as *const u8,
             info.FileIdentityLength as usize,
-        ).to_vec()
+        )
+        .to_vec()
     } else {
         Vec::new()
     };
@@ -437,7 +430,10 @@ unsafe extern "system" fn cf_cancel_fetch_callback(
     if callback_info.is_null() {
         return;
     }
-    tracing::debug!("CFApi 取消水合请求: transfer_key={}", (*callback_info).TransferKey);
+    tracing::debug!(
+        "CFApi 取消水合请求: transfer_key={}",
+        (*callback_info).TransferKey
+    );
 }
 
 /// Path → wide null-terminated Vec<u16>

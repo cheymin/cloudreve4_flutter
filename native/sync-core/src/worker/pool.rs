@@ -1,12 +1,12 @@
+#[cfg(feature = "windows-cfapi")]
+use super::worker_impl::PlaceholderCreator;
+use super::worker_impl::Worker;
 use crate::api_client::ApiClient;
 use crate::conflict_resolver::ConflictResolver;
 use crate::errors::{Result, SyncError};
 use crate::file_lock::FileLockRegistry;
 use crate::models::*;
 use crate::sync_db::SyncDb;
-use super::worker_impl::Worker;
-#[cfg(feature = "windows-cfapi")]
-use super::worker_impl::PlaceholderCreator;
 use dashmap::DashMap;
 use dashmap::DashSet;
 use std::sync::Arc;

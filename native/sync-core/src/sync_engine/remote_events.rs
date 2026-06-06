@@ -31,12 +31,21 @@ impl SyncEngine {
                     &remote.name,
                     remote.is_dir,
                 );
-                tracing::info!("[远程事件] {}/{:?}: {}", event_type_name(&event), remote.file_id, relative);
+                tracing::info!(
+                    "[远程事件] {}/{:?}: {}",
+                    event_type_name(&event),
+                    remote.file_id,
+                    relative
+                );
 
                 let remote_entry = if remote.size == 0 && !remote.is_dir {
                     match self.api.get_file_info(&remote.uri).await {
                         Ok(info) => {
-                            tracing::debug!("[远程事件] 获取文件详情成功: {} ({}bytes)", relative, info.size);
+                            tracing::debug!(
+                                "[远程事件] 获取文件详情成功: {} ({}bytes)",
+                                relative,
+                                info.size
+                            );
                             info
                         }
                         Err(e) => {
@@ -59,9 +68,19 @@ impl SyncEngine {
 
                 if is_mirror_wcf {
                     self._create_placeholder_for_remote(
-                        &relative, &remote_entry, local_root, &root_id,
-                    ).await;
-                    self._record_wcf_stats(&relative, TaskActionType::CreatePlaceholder, remote_entry.size, None).await;
+                        &relative,
+                        &remote_entry,
+                        local_root,
+                        &root_id,
+                    )
+                    .await;
+                    self._record_wcf_stats(
+                        &relative,
+                        TaskActionType::CreatePlaceholder,
+                        remote_entry.size,
+                        None,
+                    )
+                    .await;
                 } else {
                     let plan = SyncPlan {
                         downloads: vec![SyncAction {
@@ -74,22 +93,23 @@ impl SyncEngine {
                     };
                     let worker_config = self.snapshot_worker_config().await;
                     let conflict_resolver = self.conflict.read().await.clone();
-                    self.worker_pool.submit_background(
-                        plan, worker_config, WorkerTrigger::Continuous, conflict_resolver,
-                    ).await;
+                    self.worker_pool
+                        .submit_background(
+                            plan,
+                            worker_config,
+                            WorkerTrigger::Continuous,
+                            conflict_resolver,
+                        )
+                        .await;
                 }
             }
             RemoteFileEvent::Deleted { uri, name } => {
                 // 清理过期抑制条目
                 let now = std::time::Instant::now();
-                self.suppress_paths.retain(|_, ts| now.duration_since(*ts).as_secs() < 30);
+                self.suppress_paths
+                    .retain(|_, ts| now.duration_since(*ts).as_secs() < 30);
 
-                let relative = crate::diff::remote_relative_path(
-                    remote_root,
-                    uri,
-                    name,
-                    false,
-                );
+                let relative = crate::diff::remote_relative_path(remote_root, uri, name, false);
                 tracing::info!("[远程事件] 删除: {}", relative);
 
                 // AlbumDownload: 远程删除不删除本地文件，仅清理 DB 映射
@@ -117,7 +137,8 @@ impl SyncEngine {
                     tracing::info!("[远程事件] 已删除本地文件: {}", relative);
                 }
                 let _ = self.db.delete_file_mapping(&root_id, &relative).await;
-                self.suppress_paths.insert(relative.clone(), std::time::Instant::now());
+                self.suppress_paths
+                    .insert(relative.clone(), std::time::Instant::now());
 
                 // MirrorFUSE: 远程删除 → 从 FUSE inode 缓存移除
                 #[cfg(feature = "linux-fuse")]
@@ -130,16 +151,13 @@ impl SyncEngine {
 
                 // MirrorWcf: 远程删除 → 删本地，记录统计
                 if is_mirror_wcf && existed {
-                    self._record_wcf_stats(&relative, TaskActionType::DeleteLocal, 0, None).await;
+                    self._record_wcf_stats(&relative, TaskActionType::DeleteLocal, 0, None)
+                        .await;
                 }
             }
             RemoteFileEvent::Renamed { old_uri, new_entry } => {
-                let old_relative = crate::diff::remote_relative_path(
-                    remote_root,
-                    old_uri,
-                    &new_entry.name,
-                    false,
-                );
+                let old_relative =
+                    crate::diff::remote_relative_path(remote_root, old_uri, &new_entry.name, false);
                 let new_relative = crate::diff::remote_relative_path(
                     remote_root,
                     &new_entry.path,
@@ -165,18 +183,30 @@ impl SyncEngine {
                     };
                     let worker_config = self.snapshot_worker_config().await;
                     let conflict_resolver = self.conflict.read().await.clone();
-                    self.worker_pool.submit_background(
-                        plan, worker_config, WorkerTrigger::Continuous, conflict_resolver,
-                    ).await;
+                    self.worker_pool
+                        .submit_background(
+                            plan,
+                            worker_config,
+                            WorkerTrigger::Continuous,
+                            conflict_resolver,
+                        )
+                        .await;
                 } else if is_mirror_wcf {
                     let remote_entry = self.get_remote_entry_or_fallback(new_entry).await;
                     self._create_placeholder_for_remote(
-                        &new_relative, &remote_entry, local_root, &root_id,
-                    ).await;
+                        &new_relative,
+                        &remote_entry,
+                        local_root,
+                        &root_id,
+                    )
+                    .await;
                     self._record_wcf_stats(
                         &format!("{} -> {}", old_relative, new_relative),
-                        TaskActionType::Rename, 0, None,
-                    ).await;
+                        TaskActionType::Rename,
+                        0,
+                        None,
+                    )
+                    .await;
                 } else {
                     let remote_entry = self.get_remote_entry_or_fallback(new_entry).await;
                     let plan = SyncPlan {
@@ -190,18 +220,19 @@ impl SyncEngine {
                     };
                     let worker_config = self.snapshot_worker_config().await;
                     let conflict_resolver = self.conflict.read().await.clone();
-                    self.worker_pool.submit_background(
-                        plan, worker_config, WorkerTrigger::Continuous, conflict_resolver,
-                    ).await;
+                    self.worker_pool
+                        .submit_background(
+                            plan,
+                            worker_config,
+                            WorkerTrigger::Continuous,
+                            conflict_resolver,
+                        )
+                        .await;
                 }
             }
             RemoteFileEvent::Moved { old_uri, new_entry } => {
-                let old_relative = crate::diff::remote_relative_path(
-                    remote_root,
-                    old_uri,
-                    &new_entry.name,
-                    false,
-                );
+                let old_relative =
+                    crate::diff::remote_relative_path(remote_root, old_uri, &new_entry.name, false);
                 let new_relative = crate::diff::remote_relative_path(
                     remote_root,
                     &new_entry.path,
@@ -227,18 +258,30 @@ impl SyncEngine {
                     };
                     let worker_config = self.snapshot_worker_config().await;
                     let conflict_resolver = self.conflict.read().await.clone();
-                    self.worker_pool.submit_background(
-                        plan, worker_config, WorkerTrigger::Continuous, conflict_resolver,
-                    ).await;
+                    self.worker_pool
+                        .submit_background(
+                            plan,
+                            worker_config,
+                            WorkerTrigger::Continuous,
+                            conflict_resolver,
+                        )
+                        .await;
                 } else if is_mirror_wcf {
                     let remote_entry = self.get_remote_entry_or_fallback(new_entry).await;
                     self._create_placeholder_for_remote(
-                        &new_relative, &remote_entry, local_root, &root_id,
-                    ).await;
+                        &new_relative,
+                        &remote_entry,
+                        local_root,
+                        &root_id,
+                    )
+                    .await;
                     self._record_wcf_stats(
                         &format!("{} -> {}", old_relative, new_relative),
-                        TaskActionType::Move, 0, None,
-                    ).await;
+                        TaskActionType::Move,
+                        0,
+                        None,
+                    )
+                    .await;
                 } else {
                     let remote_entry = self.get_remote_entry_or_fallback(new_entry).await;
                     let plan = SyncPlan {
@@ -252,9 +295,14 @@ impl SyncEngine {
                     };
                     let worker_config = self.snapshot_worker_config().await;
                     let conflict_resolver = self.conflict.read().await.clone();
-                    self.worker_pool.submit_background(
-                        plan, worker_config, WorkerTrigger::Continuous, conflict_resolver,
-                    ).await;
+                    self.worker_pool
+                        .submit_background(
+                            plan,
+                            worker_config,
+                            WorkerTrigger::Continuous,
+                            conflict_resolver,
+                        )
+                        .await;
                 }
             }
         }
@@ -275,26 +323,33 @@ impl SyncEngine {
             TaskItemStatus::Failed
         };
         let task_id = format!("wcf_{}", uuid::Uuid::new_v4());
-        if let Err(e) = self.db.record_standalone_task_item(
-            &WorkerTrigger::WcfEvent,
-            &SyncTaskItem {
-                id: 0,
-                task_id,
-                relative_path: relative_path.to_string(),
-                action_type,
-                status,
-                file_size,
-                error_message,
-                created_at: now.clone(),
-                updated_at: now,
-            },
-        ).await {
+        if let Err(e) = self
+            .db
+            .record_standalone_task_item(
+                &WorkerTrigger::WcfEvent,
+                &SyncTaskItem {
+                    id: 0,
+                    task_id,
+                    relative_path: relative_path.to_string(),
+                    action_type,
+                    status,
+                    file_size,
+                    error_message,
+                    created_at: now.clone(),
+                    updated_at: now,
+                },
+            )
+            .await
+        {
             tracing::warn!("WCF 统计记录失败: {}", e);
         }
     }
 
     /// 获取远程文件详情，失败则使用 SSE 数据回退
-    pub(crate) async fn get_remote_entry_or_fallback(&self, entry: &RemoteFileEntry) -> RemoteFileEntry {
+    pub(crate) async fn get_remote_entry_or_fallback(
+        &self,
+        entry: &RemoteFileEntry,
+    ) -> RemoteFileEntry {
         if entry.size == 0 && !entry.is_dir {
             match self.api.get_file_info(&entry.uri).await {
                 Ok(info) => info,

@@ -1,20 +1,20 @@
-mod frb_generated; /* AUTO INJECTED BY flutter_rust_bridge. This line may not be accurate, and you can change it according to your needs. */
 pub mod api;
-pub mod models;
-pub mod errors;
-pub mod utils;
-pub mod sync_db;
 pub mod api_client;
-pub mod server_error_code;
-pub mod fs_scanner;
 pub mod conflict_resolver;
-pub mod transfer;
-pub mod event_handler;
-pub mod sync_engine;
-pub mod file_lock;
 pub mod diff;
-pub mod uploader;
 pub mod downloader;
-pub mod worker;
+pub mod errors;
+pub mod event_handler;
 pub mod event_sink;
+pub mod file_lock;
+mod frb_generated; /* AUTO INJECTED BY flutter_rust_bridge. This line may not be accurate, and you can change it according to your needs. */
+pub mod fs_scanner;
+pub mod models;
 pub mod platform;
+pub mod server_error_code;
+pub mod sync_db;
+pub mod sync_engine;
+pub mod transfer;
+pub mod uploader;
+pub mod utils;
+pub mod worker;

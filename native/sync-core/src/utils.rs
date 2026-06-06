@@ -21,20 +21,24 @@ pub async fn quick_hash(path: &Path, size: u64) -> Result<String> {
 
 /// 验证路径在同步根目录下，防止路径遍历攻击
 pub fn validate_path(root: &Path, path: &Path) -> Result<()> {
-    let canonical_root = root.canonicalize().map_err(|e| SyncError::FileSystem(
-        format!("无法解析根目录: {}", e)
-    ))?;
+    let canonical_root = root
+        .canonicalize()
+        .map_err(|e| SyncError::FileSystem(format!("无法解析根目录: {}", e)))?;
 
-    let canonical_path = path.canonicalize()
-        .unwrap_or_else(|_| path.to_path_buf());
+    let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
 
-    let relative = canonical_path.strip_prefix(&canonical_root)
-        .map_err(|_| SyncError::PathTraversal {
-            path: path.to_string_lossy().to_string(),
-            root: canonical_root.to_string_lossy().to_string(),
-        })?;
+    let relative =
+        canonical_path
+            .strip_prefix(&canonical_root)
+            .map_err(|_| SyncError::PathTraversal {
+                path: path.to_string_lossy().to_string(),
+                root: canonical_root.to_string_lossy().to_string(),
+            })?;
 
-    if relative.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+    if relative
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
         return Err(SyncError::PathTraversal {
             path: path.to_string_lossy().to_string(),
             root: canonical_root.to_string_lossy().to_string(),
@@ -61,12 +65,8 @@ pub fn is_conflict_file(name: &str) -> bool {
 /// 生成冲突副本名称
 pub fn generate_conflict_name(original: &str) -> String {
     let path = PathBuf::from(original);
-    let stem = path.file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("file");
-    let ext = path.extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("");
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
+    let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
 
     let date = chrono::Local::now().format("%Y-%m-%d");
     if ext.is_empty() {
@@ -90,7 +90,9 @@ pub fn is_temp_file(path: &Path) -> bool {
 }
 
 /// 清理目录下残留的 .sync_tmp 文件
-pub fn cleanup_temp_files<'a>(dir: &'a Path) -> std::pin::Pin<Box<dyn std::future::Future<Output = u32> + Send + 'a>> {
+pub fn cleanup_temp_files<'a>(
+    dir: &'a Path,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = u32> + Send + 'a>> {
     Box::pin(async move {
         let mut cleaned = 0u32;
         let mut entries = match tokio::fs::read_dir(dir).await {

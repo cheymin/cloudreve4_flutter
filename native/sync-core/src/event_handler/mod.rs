@@ -63,7 +63,7 @@ impl EventHandler {
         remote_root: &str,
         tx: &mpsc::Sender<RemoteFileEvent>,
     ) -> Result<()> {
-        use sse::{SseEvent, SseParseResult, sse_parse_line};
+        use sse::{sse_parse_line, SseEvent, SseParseResult};
 
         let url = format!("{}/file/events", base_url);
 
@@ -81,9 +81,10 @@ impl EventHandler {
             .await?;
 
         if !resp.status().is_success() {
-            return Err(crate::errors::SyncError::Network(
-                format!("[SSE] 连接失败: HTTP {}", resp.status()),
-            ));
+            return Err(crate::errors::SyncError::Network(format!(
+                "[SSE] 连接失败: HTTP {}",
+                resp.status()
+            )));
         }
 
         tracing::info!("[SSE] 连接成功，开始监听事件 (uri={})", remote_root);
@@ -131,7 +132,10 @@ impl EventHandler {
                             for ev in &events {
                                 tracing::info!(
                                     "[SSE] 原始事件: type={}, file_id={}, from={}, to={}",
-                                    ev.event_type, ev.file_id, ev.from, ev.to
+                                    ev.event_type,
+                                    ev.file_id,
+                                    ev.from,
+                                    ev.to
                                 );
                                 if let Some(remote_event) = Self::parse_sse_event(ev, remote_root) {
                                     if tx.send(remote_event).await.is_err() {
@@ -180,8 +184,7 @@ impl EventHandler {
             "create" | "modify" => {
                 let uri = full_uri(&ev.from);
                 Some(RemoteFileEvent::Modified(RemoteFileEntry {
-                    name: ev.from.split('/').next_back()
-                        .unwrap_or("").to_string(),
+                    name: ev.from.split('/').next_back().unwrap_or("").to_string(),
                     path: ev.from.clone(),
                     uri,
                     size: 0,
@@ -196,16 +199,14 @@ impl EventHandler {
                 let uri = full_uri(&ev.from);
                 Some(RemoteFileEvent::Deleted {
                     uri,
-                    name: ev.from.split('/').next_back()
-                        .unwrap_or("").to_string(),
+                    name: ev.from.split('/').next_back().unwrap_or("").to_string(),
                 })
             }
             "rename" | "move" => {
                 let old_uri = full_uri(&ev.from);
                 let new_uri = full_uri(&ev.to);
                 let new_entry = RemoteFileEntry {
-                    name: ev.to.split('/').next_back()
-                        .unwrap_or("").to_string(),
+                    name: ev.to.split('/').next_back().unwrap_or("").to_string(),
                     path: ev.to.clone(),
                     uri: new_uri,
                     size: 0,
@@ -261,7 +262,8 @@ impl EventDebouncer {
 
     pub fn cleanup(&mut self) {
         let now = Instant::now();
-        self.pending.retain(|_, last| now.duration_since(*last) < self.debounce_window);
+        self.pending
+            .retain(|_, last| now.duration_since(*last) < self.debounce_window);
     }
 }
 

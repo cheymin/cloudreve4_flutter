@@ -1,7 +1,7 @@
-mod worker_impl;
 mod pool;
+mod worker_impl;
 
-pub use worker_impl::Worker;
+pub use pool::WorkerPool;
 #[cfg(feature = "windows-cfapi")]
 pub use worker_impl::PlaceholderCreator;
-pub use pool::WorkerPool;
+pub use worker_impl::Worker;

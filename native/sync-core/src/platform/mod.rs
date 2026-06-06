@@ -1,10 +1,10 @@
-/// 平台适配器 trait — 各平台（Windows WCF / Linux FUSE / Android）实现此接口
-#[cfg(any(feature = "windows-cfapi", feature = "linux-fuse"))]
-use async_trait::async_trait;
 #[cfg(any(feature = "windows-cfapi", feature = "linux-fuse"))]
 use crate::errors::Result;
 #[cfg(any(feature = "windows-cfapi", feature = "linux-fuse"))]
 use crate::models::{LocalFileEvent, RemoteFileEntry};
+/// 平台适配器 trait — 各平台（Windows WCF / Linux FUSE / Android）实现此接口
+#[cfg(any(feature = "windows-cfapi", feature = "linux-fuse"))]
+use async_trait::async_trait;
 #[cfg(any(feature = "windows-cfapi", feature = "linux-fuse"))]
 use std::path::Path;
 #[cfg(any(feature = "windows-cfapi", feature = "linux-fuse"))]

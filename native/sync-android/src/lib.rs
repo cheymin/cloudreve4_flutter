@@ -17,9 +17,7 @@ const IMAGE_EXTENSIONS: &[&str] = &[
 ];
 
 /// 视频扩展名
-const VIDEO_EXTENSIONS: &[&str] = &[
-    "mp4", "mov", "avi", "mkv", "wmv", "flv", "3gp", "webm",
-];
+const VIDEO_EXTENSIONS: &[&str] = &["mp4", "mov", "avi", "mkv", "wmv", "flv", "3gp", "webm"];
 
 pub struct AndroidAdapter;
 
@@ -69,7 +67,8 @@ impl AndroidAdapter {
 
     /// 从路径列表中过滤出媒体文件
     pub fn filter_media_files(paths: &[String]) -> Vec<String> {
-        paths.iter()
+        paths
+            .iter()
             .filter(|p| Self::is_media_file(p))
             .cloned()
             .collect()

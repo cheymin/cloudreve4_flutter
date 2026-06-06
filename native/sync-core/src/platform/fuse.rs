@@ -10,8 +10,8 @@
 #![cfg(feature = "linux-fuse")]
 
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use dashmap::DashMap;
 use fuser::{
@@ -22,8 +22,8 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::api_client::ApiClient;
-use crate::sync_db::SyncDb;
 use crate::models::SyncConfig;
+use crate::sync_db::SyncDb;
 
 // ========== 常量 ==========
 
@@ -54,7 +54,9 @@ pub struct InodeStore {
 }
 
 impl Default for InodeStore {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl InodeStore {
@@ -65,17 +67,20 @@ impl InodeStore {
             children: DashMap::new(),
             next_inode: AtomicU64::new(FUSE_ROOT_INO + 1),
         };
-        store.entries.insert(FUSE_ROOT_INO, InodeEntry {
-            ino: FUSE_ROOT_INO,
-            parent_ino: FUSE_ROOT_INO,
-            name: String::new(),
-            is_dir: true,
-            size: 0,
-            mtime_ms: 0,
-            remote_uri: String::new(),
-            remote_hash: None,
-            dir_loaded: false,
-        });
+        store.entries.insert(
+            FUSE_ROOT_INO,
+            InodeEntry {
+                ino: FUSE_ROOT_INO,
+                parent_ino: FUSE_ROOT_INO,
+                name: String::new(),
+                is_dir: true,
+                size: 0,
+                mtime_ms: 0,
+                remote_uri: String::new(),
+                remote_hash: None,
+                dir_loaded: false,
+            },
+        );
         store.path_to_inode.insert(String::new(), FUSE_ROOT_INO);
         store
     }
@@ -84,7 +89,13 @@ impl InodeStore {
         self.next_inode.fetch_add(1, Ordering::Relaxed)
     }
 
-    pub fn upsert(&self, relative_path: &str, parent_ino: u64, name: &str, entry: InodeEntry) -> u64 {
+    pub fn upsert(
+        &self,
+        relative_path: &str,
+        parent_ino: u64,
+        name: &str,
+        entry: InodeEntry,
+    ) -> u64 {
         if let Some(existing_ino) = self.path_to_inode.get(relative_path).map(|r| *r.value()) {
             if let Some(mut e) = self.entries.get_mut(&existing_ino) {
                 e.size = entry.size;
@@ -97,7 +108,10 @@ impl InodeStore {
             let ino = entry.ino;
             self.entries.insert(ino, entry);
             self.path_to_inode.insert(relative_path.to_string(), ino);
-            self.children.entry(parent_ino).or_default().push((name.to_string(), ino));
+            self.children
+                .entry(parent_ino)
+                .or_default()
+                .push((name.to_string(), ino));
             ino
         }
     }
@@ -106,7 +120,9 @@ impl InodeStore {
         let (_, ino) = self.path_to_inode.remove(relative_path)?;
         let (_, entry) = self.entries.remove(&ino)?;
         if let Some(mut children) = self.children.get_mut(&entry.parent_ino) {
-            children.retain(|(child_name, child_ino)| !(*child_ino == ino && child_name == &entry.name));
+            children.retain(|(child_name, child_ino)| {
+                !(*child_ino == ino && child_name == &entry.name)
+            });
         }
         if entry.is_dir {
             self.remove_children_recursive(ino);
@@ -143,7 +159,10 @@ impl InodeStore {
     }
 
     pub fn get_children(&self, parent_ino: u64) -> Vec<(String, u64)> {
-        self.children.get(&parent_ino).map(|r| r.value().clone()).unwrap_or_default()
+        self.children
+            .get(&parent_ino)
+            .map(|r| r.value().clone())
+            .unwrap_or_default()
     }
 
     pub fn lookup_child(&self, parent_ino: u64, name: &str) -> Option<InodeEntry> {
@@ -158,7 +177,10 @@ impl InodeStore {
 
     /// 根据 inode 查找相对路径
     pub fn path_for_ino(&self, ino: u64) -> Option<String> {
-        self.path_to_inode.iter().find(|e| *e.value() == ino).map(|e| e.key().clone())
+        self.path_to_inode
+            .iter()
+            .find(|e| *e.value() == ino)
+            .map(|e| e.key().clone())
     }
 
     /// 更新 inode 的 remote_uri（上传成功后调用）
@@ -191,7 +213,10 @@ impl InodeStore {
                 children.retain(|(_, cino)| *cino != ino);
             }
             // 添加到新父目录子项
-            self.children.entry(new_parent_ino).or_default().push((new_name.to_string(), ino));
+            self.children
+                .entry(new_parent_ino)
+                .or_default()
+                .push((new_name.to_string(), ino));
         }
         self.path_to_inode.insert(new_rel.to_string(), ino);
     }
@@ -269,17 +294,32 @@ enum WriteBuffer {
     /// 小文件：纯内存
     Memory { data: Vec<u8>, modified: bool },
     /// 大文件：临时文件
-    File { path: std::path::PathBuf, modified: bool, len: u64 },
+    File {
+        path: std::path::PathBuf,
+        modified: bool,
+        len: u64,
+    },
 }
 
 impl WriteBuffer {
     fn new_memory() -> Self {
-        WriteBuffer::Memory { data: Vec::new(), modified: false }
+        WriteBuffer::Memory {
+            data: Vec::new(),
+            modified: false,
+        }
     }
 
-    fn write(&mut self, offset: i64, data: &[u8], tmp_dir: &Path) -> std::result::Result<(), String> {
+    fn write(
+        &mut self,
+        offset: i64,
+        data: &[u8],
+        tmp_dir: &Path,
+    ) -> std::result::Result<(), String> {
         match self {
-            WriteBuffer::Memory { data: buf, modified } => {
+            WriteBuffer::Memory {
+                data: buf,
+                modified,
+            } => {
                 let end = (offset as usize) + data.len();
                 if end > buf.len() {
                     buf.resize(end, 0);
@@ -289,13 +329,22 @@ impl WriteBuffer {
                 // 超过阈值则切换到文件模式
                 if buf.len() as u64 > MEMORY_BUFFER_THRESHOLD {
                     let tmp_path = tmp_dir.join(format!("fuse_write_{}", std::process::id()));
-                    std::fs::write(&tmp_path, buf.as_slice()).map_err(|e| format!("写临时文件失败: {}", e))?;
+                    std::fs::write(&tmp_path, buf.as_slice())
+                        .map_err(|e| format!("写临时文件失败: {}", e))?;
                     let len = buf.len() as u64;
-                    *self = WriteBuffer::File { path: tmp_path, modified: true, len };
+                    *self = WriteBuffer::File {
+                        path: tmp_path,
+                        modified: true,
+                        len,
+                    };
                 }
                 Ok(())
             }
-            WriteBuffer::File { path, modified, len } => {
+            WriteBuffer::File {
+                path,
+                modified,
+                len,
+            } => {
                 use std::io::{Seek, SeekFrom, Write};
                 let mut f = std::fs::OpenOptions::new()
                     .write(true)
@@ -303,8 +352,10 @@ impl WriteBuffer {
                     .truncate(false)
                     .open(path)
                     .map_err(|e| format!("打开临时文件失败: {}", e))?;
-                f.seek(SeekFrom::Start(offset as u64)).map_err(|e| format!("seek 失败: {}", e))?;
-                f.write_all(data).map_err(|e| format!("写临时文件失败: {}", e))?;
+                f.seek(SeekFrom::Start(offset as u64))
+                    .map_err(|e| format!("seek 失败: {}", e))?;
+                f.write_all(data)
+                    .map_err(|e| format!("写临时文件失败: {}", e))?;
                 let new_end = (offset as u64) + data.len() as u64;
                 if new_end > *len {
                     *len = new_end;
@@ -331,9 +382,17 @@ impl WriteBuffer {
 
     /// 取出数据（小文件返回内存数据，大文件返回空 Vec 需从 tmp_path 读取）
     fn take_data(&mut self) -> (Vec<u8>, Option<String>) {
-        match std::mem::replace(self, WriteBuffer::Memory { data: Vec::new(), modified: false }) {
+        match std::mem::replace(
+            self,
+            WriteBuffer::Memory {
+                data: Vec::new(),
+                modified: false,
+            },
+        ) {
             WriteBuffer::Memory { data, .. } => (data, None),
-            WriteBuffer::File { path, .. } => (Vec::new(), Some(path.to_string_lossy().to_string())),
+            WriteBuffer::File { path, .. } => {
+                (Vec::new(), Some(path.to_string_lossy().to_string()))
+            }
         }
     }
 }
@@ -380,7 +439,11 @@ impl CloudreveFuseFs {
 
     fn entry_to_attr(&self, entry: &InodeEntry) -> FileAttr {
         let mtime = std::time::UNIX_EPOCH + std::time::Duration::from_millis(entry.mtime_ms as u64);
-        let kind = if entry.is_dir { FileType::Directory } else { FileType::RegularFile };
+        let kind = if entry.is_dir {
+            FileType::Directory
+        } else {
+            FileType::RegularFile
+        };
         FileAttr {
             ino: entry.ino,
             size: entry.size,
@@ -402,18 +465,24 @@ impl CloudreveFuseFs {
 
     /// 根据 parent_ino 和 name 计算相对路径
     fn relative_path(&self, parent_ino: u64, name: &str) -> String {
-        let parent_rel = self.inode_store.path_for_ino(parent_ino).unwrap_or_default();
+        let parent_rel = self
+            .inode_store
+            .path_for_ino(parent_ino)
+            .unwrap_or_default();
         if parent_rel.is_empty() {
             name.to_string()
         } else {
             format!("{}/{}", parent_rel, name)
         }
     }
-
 }
 
 impl Filesystem for CloudreveFuseFs {
-    fn init(&mut self, _req: &Request, _config: &mut fuser::KernelConfig) -> std::result::Result<(), libc::c_int> {
+    fn init(
+        &mut self,
+        _req: &Request,
+        _config: &mut fuser::KernelConfig,
+    ) -> std::result::Result<(), libc::c_int> {
         tracing::info!("FUSE 文件系统已初始化（读写模式）");
         Ok(())
     }
@@ -425,7 +494,10 @@ impl Filesystem for CloudreveFuseFs {
 
     fn getattr(&mut self, _req: &Request, ino: u64, _fh: Option<u64>, reply: ReplyAttr) {
         match self.inode_store.get(ino) {
-            Some(entry) => reply.attr(&std::time::Duration::from_secs(1), &self.entry_to_attr(&entry)),
+            Some(entry) => reply.attr(
+                &std::time::Duration::from_secs(1),
+                &self.entry_to_attr(&entry),
+            ),
             None => reply.error(libc::ENOENT),
         }
     }
@@ -433,39 +505,70 @@ impl Filesystem for CloudreveFuseFs {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &std::ffi::OsStr, reply: ReplyEntry) {
         let name_str = name.to_string_lossy().to_string();
         match self.inode_store.lookup_child(parent, &name_str) {
-            Some(entry) => reply.entry(&std::time::Duration::from_secs(1), &self.entry_to_attr(&entry), 0),
+            Some(entry) => reply.entry(
+                &std::time::Duration::from_secs(1),
+                &self.entry_to_attr(&entry),
+                0,
+            ),
             None => reply.error(libc::ENOENT),
         }
     }
 
-    fn readdir(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, mut reply: ReplyDirectory) {
+    fn readdir(
+        &mut self,
+        _req: &Request,
+        ino: u64,
+        _fh: u64,
+        offset: i64,
+        mut reply: ReplyDirectory,
+    ) {
         let entry = match self.inode_store.get(ino) {
             Some(e) => e,
-            None => { reply.error(libc::ENOENT); return; }
+            None => {
+                reply.error(libc::ENOENT);
+                return;
+            }
         };
 
-        if !entry.is_dir { reply.error(libc::ENOTDIR); return; }
+        if !entry.is_dir {
+            reply.error(libc::ENOTDIR);
+            return;
+        }
 
         if offset == 0 && reply.add(entry.ino, 1, FileType::Directory, ".") {
-            reply.ok(); return;
+            reply.ok();
+            return;
         }
         if offset <= 1 {
-            let parent_ino = if entry.ino == FUSE_ROOT_INO { FUSE_ROOT_INO } else { entry.parent_ino };
+            let parent_ino = if entry.ino == FUSE_ROOT_INO {
+                FUSE_ROOT_INO
+            } else {
+                entry.parent_ino
+            };
             if reply.add(parent_ino, 2, FileType::Directory, "..") {
-                reply.ok(); return;
+                reply.ok();
+                return;
             }
         }
 
         let children = self.inode_store.get_children(ino);
         for (i, (name, child_ino)) in children.iter().enumerate() {
             let idx = (i + 2) as i64;
-            if idx < offset { continue; }
+            if idx < offset {
+                continue;
+            }
             let child_entry = match self.inode_store.get(*child_ino) {
                 Some(e) => e,
                 None => continue,
             };
-            let kind = if child_entry.is_dir { FileType::Directory } else { FileType::RegularFile };
-            if reply.add(*child_ino, idx + 1, kind, name.as_str()) { break; }
+            let kind = if child_entry.is_dir {
+                FileType::Directory
+            } else {
+                FileType::RegularFile
+            };
+            if reply.add(*child_ino, idx + 1, kind, name.as_str()) {
+                break;
+            }
         }
         reply.ok();
     }
@@ -477,12 +580,23 @@ impl Filesystem for CloudreveFuseFs {
         // 如果是写打开（O_WRONLY 或 O_RDWR），初始化写缓冲
         let write_mode = (flags & libc::O_WRONLY != 0) || (flags & libc::O_RDWR != 0);
         if write_mode {
-            self.write_buffers.insert(fh, (ino, WriteBuffer::new_memory()));
+            self.write_buffers
+                .insert(fh, (ino, WriteBuffer::new_memory()));
         }
         reply.opened(fh, fuser::consts::FOPEN_KEEP_CACHE);
     }
 
-    fn read(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, size: u32, _flags: i32, _lock_owner: Option<u64>, reply: ReplyData) {
+    fn read(
+        &mut self,
+        _req: &Request,
+        ino: u64,
+        _fh: u64,
+        offset: i64,
+        size: u32,
+        _flags: i32,
+        _lock_owner: Option<u64>,
+        reply: ReplyData,
+    ) {
         // 如果有写缓冲（正在写入的文件），从写缓冲读取
         if let Some(pair) = self.write_buffers.get(&(_fh)) {
             if pair.0 == ino {
@@ -521,10 +635,19 @@ impl Filesystem for CloudreveFuseFs {
         // 已有文件的读：走水合
         let entry = match self.inode_store.get(ino) {
             Some(e) => e,
-            None => { reply.error(libc::ENOENT); return; }
+            None => {
+                reply.error(libc::ENOENT);
+                return;
+            }
         };
-        if entry.is_dir { reply.error(libc::EISDIR); return; }
-        if entry.remote_uri.is_empty() { reply.error(libc::EIO); return; }
+        if entry.is_dir {
+            reply.error(libc::EISDIR);
+            return;
+        }
+        if entry.remote_uri.is_empty() {
+            reply.error(libc::EIO);
+            return;
+        }
 
         let (tx, rx) = tokio::sync::oneshot::channel();
         let request = FuseRequest::Read {
@@ -564,12 +687,27 @@ impl Filesystem for CloudreveFuseFs {
 
     // ========== 写操作 ==========
 
-    fn write(&mut self, _req: &Request, ino: u64, fh: u64, offset: i64, data: &[u8], _write_flags: u32, _flags: i32, _lock_owner: Option<u64>, reply: ReplyWrite) {
+    fn write(
+        &mut self,
+        _req: &Request,
+        ino: u64,
+        fh: u64,
+        offset: i64,
+        data: &[u8],
+        _write_flags: u32,
+        _flags: i32,
+        _lock_owner: Option<u64>,
+        reply: ReplyWrite,
+    ) {
         let mut buffer = match self.write_buffers.get_mut(&fh) {
             Some(b) if b.0 == ino => b,
             _ => {
                 // 没有写缓冲但收到 write，自动创建
-                drop(self.write_buffers.entry(fh).or_insert((ino, WriteBuffer::new_memory())));
+                drop(
+                    self.write_buffers
+                        .entry(fh)
+                        .or_insert((ino, WriteBuffer::new_memory())),
+                );
                 self.write_buffers.get_mut(&fh).unwrap()
             }
         };
@@ -587,10 +725,20 @@ impl Filesystem for CloudreveFuseFs {
         reply.written(data.len() as u32);
     }
 
-    fn flush(&mut self, _req: &Request, ino: u64, fh: u64, _lock_owner: u64, reply: fuser::ReplyEmpty) {
+    fn flush(
+        &mut self,
+        _req: &Request,
+        ino: u64,
+        fh: u64,
+        _lock_owner: u64,
+        reply: fuser::ReplyEmpty,
+    ) {
         let mut buffer = match self.write_buffers.get_mut(&fh) {
             Some(b) if b.0 == ino => b,
-            _ => { reply.ok(); return; }
+            _ => {
+                reply.ok();
+                return;
+            }
         };
 
         if !buffer.1.is_modified() {
@@ -605,14 +753,20 @@ impl Filesystem for CloudreveFuseFs {
                 let entry = self.inode_store.get(ino);
                 match entry {
                     Some(e) => self.relative_path(e.parent_ino, &e.name),
-                    None => { reply.error(libc::EIO); return; }
+                    None => {
+                        reply.error(libc::EIO);
+                        return;
+                    }
                 }
             }
         };
 
         let entry = match self.inode_store.get(ino) {
             Some(e) => e,
-            None => { reply.error(libc::ENOENT); return; }
+            None => {
+                reply.error(libc::ENOENT);
+                return;
+            }
         };
 
         let (data, tmp_path) = buffer.1.take_data();
@@ -657,14 +811,32 @@ impl Filesystem for CloudreveFuseFs {
         }
     }
 
-    fn release(&mut self, _req: &Request, _ino: u64, fh: u64, _flags: i32, _lock_owner: Option<u64>, _flush: bool, reply: fuser::ReplyEmpty) {
+    fn release(
+        &mut self,
+        _req: &Request,
+        _ino: u64,
+        fh: u64,
+        _flags: i32,
+        _lock_owner: Option<u64>,
+        _flush: bool,
+        reply: fuser::ReplyEmpty,
+    ) {
         if let Some((_, (_, WriteBuffer::File { path, .. }))) = self.write_buffers.remove(&fh) {
             let _ = std::fs::remove_file(&path);
         }
         reply.ok();
     }
 
-    fn create(&mut self, _req: &Request, parent: u64, name: &std::ffi::OsStr, _mode: u32, _umask: u32, _flags: i32, reply: fuser::ReplyCreate) {
+    fn create(
+        &mut self,
+        _req: &Request,
+        parent: u64,
+        name: &std::ffi::OsStr,
+        _mode: u32,
+        _umask: u32,
+        _flags: i32,
+        reply: fuser::ReplyCreate,
+    ) {
         let name_str = name.to_string_lossy().to_string();
         let relative_path = self.relative_path(parent, &name_str);
         let ino = self.inode_store.alloc_inode();
@@ -684,16 +856,26 @@ impl Filesystem for CloudreveFuseFs {
             remote_hash: None,
             dir_loaded: false,
         };
-        self.inode_store.upsert(&relative_path, parent, &entry.name.clone(), entry);
+        self.inode_store
+            .upsert(&relative_path, parent, &entry.name.clone(), entry);
 
         let fh = self.alloc_fh();
-        self.write_buffers.insert(fh, (ino, WriteBuffer::new_memory()));
+        self.write_buffers
+            .insert(fh, (ino, WriteBuffer::new_memory()));
 
         let attr = self.entry_to_attr(&self.inode_store.get(ino).unwrap());
         reply.created(&std::time::Duration::from_secs(1), &attr, 0, fh, 0);
     }
 
-    fn mkdir(&mut self, _req: &Request, parent: u64, name: &std::ffi::OsStr, _mode: u32, _umask: u32, reply: ReplyEntry) {
+    fn mkdir(
+        &mut self,
+        _req: &Request,
+        parent: u64,
+        name: &std::ffi::OsStr,
+        _mode: u32,
+        _umask: u32,
+        reply: ReplyEntry,
+    ) {
         let name_str = name.to_string_lossy().to_string();
         let relative_path = self.relative_path(parent, &name_str);
         let ino = self.inode_store.alloc_inode();
@@ -709,7 +891,8 @@ impl Filesystem for CloudreveFuseFs {
             remote_hash: None,
             dir_loaded: false,
         };
-        self.inode_store.upsert(&relative_path, parent, &name_str, entry);
+        self.inode_store
+            .upsert(&relative_path, parent, &name_str, entry);
 
         // 异步创建远程目录
         let (tx, rx) = tokio::sync::oneshot::channel();
@@ -741,13 +924,25 @@ impl Filesystem for CloudreveFuseFs {
         });
     }
 
-    fn unlink(&mut self, _req: &Request, parent: u64, name: &std::ffi::OsStr, reply: fuser::ReplyEmpty) {
+    fn unlink(
+        &mut self,
+        _req: &Request,
+        parent: u64,
+        name: &std::ffi::OsStr,
+        reply: fuser::ReplyEmpty,
+    ) {
         let name_str = name.to_string_lossy().to_string();
         let child = match self.inode_store.lookup_child(parent, &name_str) {
             Some(c) => c,
-            None => { reply.error(libc::ENOENT); return; }
+            None => {
+                reply.error(libc::ENOENT);
+                return;
+            }
         };
-        if child.is_dir { reply.error(libc::EISDIR); return; }
+        if child.is_dir {
+            reply.error(libc::EISDIR);
+            return;
+        }
 
         let relative_path = self.relative_path(parent, &name_str);
         let remote_uri = child.remote_uri.clone();
@@ -780,13 +975,25 @@ impl Filesystem for CloudreveFuseFs {
         reply.ok();
     }
 
-    fn rmdir(&mut self, _req: &Request, parent: u64, name: &std::ffi::OsStr, reply: fuser::ReplyEmpty) {
+    fn rmdir(
+        &mut self,
+        _req: &Request,
+        parent: u64,
+        name: &std::ffi::OsStr,
+        reply: fuser::ReplyEmpty,
+    ) {
         let name_str = name.to_string_lossy().to_string();
         let child = match self.inode_store.lookup_child(parent, &name_str) {
             Some(c) => c,
-            None => { reply.error(libc::ENOENT); return; }
+            None => {
+                reply.error(libc::ENOENT);
+                return;
+            }
         };
-        if !child.is_dir { reply.error(libc::ENOTDIR); return; }
+        if !child.is_dir {
+            reply.error(libc::ENOTDIR);
+            return;
+        }
 
         // 检查目录是否为空
         let children = self.inode_store.get_children(child.ino);
@@ -824,7 +1031,16 @@ impl Filesystem for CloudreveFuseFs {
         reply.ok();
     }
 
-    fn rename(&mut self, _req: &Request, parent: u64, name: &std::ffi::OsStr, new_parent: u64, new_name: &std::ffi::OsStr, _flags: u32, reply: fuser::ReplyEmpty) {
+    fn rename(
+        &mut self,
+        _req: &Request,
+        parent: u64,
+        name: &std::ffi::OsStr,
+        new_parent: u64,
+        new_name: &std::ffi::OsStr,
+        _flags: u32,
+        reply: fuser::ReplyEmpty,
+    ) {
         let old_name = name.to_string_lossy().to_string();
         let new_name_str = new_name.to_string_lossy().to_string();
         let old_rel = self.relative_path(parent, &old_name);
@@ -832,19 +1048,27 @@ impl Filesystem for CloudreveFuseFs {
 
         let child = match self.inode_store.lookup_child(parent, &old_name) {
             Some(c) => c,
-            None => { reply.error(libc::ENOENT); return; }
+            None => {
+                reply.error(libc::ENOENT);
+                return;
+            }
         };
         let remote_uri = child.remote_uri.clone();
         let ino = child.ino;
 
         // 如果目标已存在，先移除
-        if self.inode_store.lookup_child(new_parent, &new_name_str).is_some() {
+        if self
+            .inode_store
+            .lookup_child(new_parent, &new_name_str)
+            .is_some()
+        {
             let target_rel = new_rel.clone();
             self.inode_store.remove(&target_rel);
         }
 
         // 更新 InodeStore
-        self.inode_store.rename_inode(&old_rel, &new_rel, new_parent, &new_name_str);
+        self.inode_store
+            .rename_inode(&old_rel, &new_rel, new_parent, &new_name_str);
 
         // 异步重命名远程文件
         if !remote_uri.is_empty() {
@@ -872,7 +1096,24 @@ impl Filesystem for CloudreveFuseFs {
         reply.ok();
     }
 
-    fn setattr(&mut self, _req: &Request, ino: u64, _mode: Option<u32>, uid: Option<u32>, gid: Option<u32>, size: Option<u64>, _atime: Option<fuser::TimeOrNow>, _mtime: Option<fuser::TimeOrNow>, _ctime: Option<std::time::SystemTime>, fh: Option<u64>, _crtime: Option<std::time::SystemTime>, _chgtime: Option<std::time::SystemTime>, _bkuptime: Option<std::time::SystemTime>, _flags: Option<u32>, reply: ReplyAttr) {
+    fn setattr(
+        &mut self,
+        _req: &Request,
+        ino: u64,
+        _mode: Option<u32>,
+        uid: Option<u32>,
+        gid: Option<u32>,
+        size: Option<u64>,
+        _atime: Option<fuser::TimeOrNow>,
+        _mtime: Option<fuser::TimeOrNow>,
+        _ctime: Option<std::time::SystemTime>,
+        fh: Option<u64>,
+        _crtime: Option<std::time::SystemTime>,
+        _chgtime: Option<std::time::SystemTime>,
+        _bkuptime: Option<std::time::SystemTime>,
+        _flags: Option<u32>,
+        reply: ReplyAttr,
+    ) {
         let _ = (uid, gid);
         if self.inode_store.get(ino).is_none() {
             reply.error(libc::ENOENT);
@@ -896,7 +1137,10 @@ impl Filesystem for CloudreveFuseFs {
         }
 
         let entry = self.inode_store.get(ino).unwrap();
-        reply.attr(&std::time::Duration::from_secs(1), &self.entry_to_attr(&entry));
+        reply.attr(
+            &std::time::Duration::from_secs(1),
+            &self.entry_to_attr(&entry),
+        );
     }
 
     fn statfs(&mut self, _req: &Request, _ino: u64, reply: ReplyStatfs) {
@@ -1015,7 +1259,10 @@ impl FusePlatformAdapter {
         remote_hash: Option<&str>,
         mtime_ms: i64,
     ) {
-        let parent_ino = self.inode_store.path_to_inode.get(parent_rel)
+        let parent_ino = self
+            .inode_store
+            .path_to_inode
+            .get(parent_rel)
             .map(|r| *r.value())
             .unwrap_or(FUSE_ROOT_INO);
 
@@ -1032,8 +1279,14 @@ impl FusePlatformAdapter {
             dir_loaded: false,
         };
 
-        self.inode_store.upsert(relative_path, parent_ino, name, entry);
-        tracing::debug!("FUSE inode 注册: {} (ino={}, dir={})", relative_path, ino, is_dir);
+        self.inode_store
+            .upsert(relative_path, parent_ino, name, entry);
+        tracing::debug!(
+            "FUSE inode 注册: {} (ino={}, dir={})",
+            relative_path,
+            ino,
+            is_dir
+        );
     }
 
     pub fn remove_inode(&self, relative_path: &str) {

@@ -29,7 +29,8 @@ impl EventSink {
 
     /// 注册 StreamSink
     pub async fn register(&self, sink: crate::frb_generated::StreamSink<SyncEventFfi>) {
-        self.available.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.available
+            .store(true, std::sync::atomic::Ordering::Relaxed);
         *self.sink.lock().await = Some(sink);
     }
 

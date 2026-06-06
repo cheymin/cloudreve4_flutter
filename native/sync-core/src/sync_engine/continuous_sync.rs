@@ -7,18 +7,22 @@ use super::SyncEngine;
 impl SyncEngine {
     /// 持续同步：双事件源驱动 (SSE + 本地文件监听)，按 sync_mode 选择事件源
     pub async fn run_continuous(&self) -> Result<()> {
-        let event_handler = EventHandler::new(
-            self.api.clone(),
-            self.api.client_id().to_string(),
-        );
+        let event_handler = EventHandler::new(self.api.clone(), self.api.client_id().to_string());
 
         let (local_root, remote_root, sync_mode) = {
             let config = self.config.read().await;
-            (config.local_root.clone(), config.remote_root.clone(), config.sync_mode.clone())
+            (
+                config.local_root.clone(),
+                config.remote_root.clone(),
+                config.sync_mode.clone(),
+            )
         };
 
         // 仅 DownloadOnly、Full、MirrorWcf、AlbumDownload 订阅 SSE
-        let mut remote_rx = if matches!(sync_mode, SyncMode::DownloadOnly | SyncMode::Full | SyncMode::MirrorWcf | SyncMode::AlbumDownload) {
+        let mut remote_rx = if matches!(
+            sync_mode,
+            SyncMode::DownloadOnly | SyncMode::Full | SyncMode::MirrorWcf | SyncMode::AlbumDownload
+        ) {
             Some(event_handler.subscribe_sse(&remote_root).await?)
         } else {
             tracing::info!("仅上传模式: 不订阅 SSE 远程事件");
@@ -26,8 +30,14 @@ impl SyncEngine {
         };
 
         // 仅 UploadOnly、Full、MirrorWcf、AlbumUpload 启动本地文件监听
-        let mut local_rx = if matches!(sync_mode, SyncMode::UploadOnly | SyncMode::Full | SyncMode::MirrorWcf | SyncMode::AlbumUpload) {
-            Some(spawn_local_watcher(&local_root, self.shutdown_token.lock().unwrap().clone()))
+        let mut local_rx = if matches!(
+            sync_mode,
+            SyncMode::UploadOnly | SyncMode::Full | SyncMode::MirrorWcf | SyncMode::AlbumUpload
+        ) {
+            Some(spawn_local_watcher(
+                &local_root,
+                self.shutdown_token.lock().unwrap().clone(),
+            ))
         } else {
             tracing::info!("仅下载模式: 不启动本地文件监听");
             None
@@ -49,16 +59,18 @@ impl SyncEngine {
         // MirrorFUSE: 取走 FUSE 请求接收端
         #[cfg(feature = "linux-fuse")]
         let mut fuse_request_rx = if matches!(sync_mode, SyncMode::MirrorWcf) {
-            self.fuse_request_rx.lock().ok().and_then(|mut rx| rx.take())
+            self.fuse_request_rx
+                .lock()
+                .ok()
+                .and_then(|mut rx| rx.take())
         } else {
             None
         };
         #[cfg(not(feature = "linux-fuse"))]
         let _fuse_request_rx: Option<()> = None;
 
-        let mut debounce = crate::event_handler::EventDebouncer::new(
-            std::time::Duration::from_millis(500),
-        );
+        let mut debounce =
+            crate::event_handler::EventDebouncer::new(std::time::Duration::from_millis(500));
 
         let shutdown_token = self.shutdown_token.lock().unwrap().clone();
         loop {
@@ -163,9 +175,9 @@ fn spawn_local_watcher(
     let watch_root = watch_root.to_path_buf();
 
     std::thread::spawn(move || {
-        use notify_debouncer_full::notify::{RecursiveMode, EventKind};
-        use notify_debouncer_full::notify::event::{ModifyKind, RenameMode};
         use notify_debouncer_full::new_debouncer;
+        use notify_debouncer_full::notify::event::{ModifyKind, RenameMode};
+        use notify_debouncer_full::notify::{EventKind, RecursiveMode};
 
         let tx = local_tx.clone();
         let shutdown = shutdown_token.clone();
@@ -173,51 +185,54 @@ fn spawn_local_watcher(
         let mut debouncer = match new_debouncer(
             std::time::Duration::from_millis(500),
             None,
-            move |result: notify_debouncer_full::DebounceEventResult| {
-                match result {
-                    Ok(events) => {
-                        for event in events {
-                            if shutdown.is_cancelled() { return; }
-                            let kind = event.kind;
-                            let paths = &event.paths;
+            move |result: notify_debouncer_full::DebounceEventResult| match result {
+                Ok(events) => {
+                    for event in events {
+                        if shutdown.is_cancelled() {
+                            return;
+                        }
+                        let kind = event.kind;
+                        let paths = &event.paths;
 
-                            let filtered: Vec<_> = paths.iter()
-                                .filter(|p| !p.extension().map(|e| e == "sync_tmp").unwrap_or(false))
-                                .cloned()
-                                .collect();
-                            if filtered.is_empty() { continue; }
+                        let filtered: Vec<_> = paths
+                            .iter()
+                            .filter(|p| !p.extension().map(|e| e == "sync_tmp").unwrap_or(false))
+                            .cloned()
+                            .collect();
+                        if filtered.is_empty() {
+                            continue;
+                        }
 
-                            match kind {
-                                EventKind::Create(_) => {
-                                    let _ = tx.blocking_send(LocalFileEvent::Created(filtered));
-                                }
-                                EventKind::Modify(ModifyKind::Name(RenameMode::From)) => {}
-                                EventKind::Modify(ModifyKind::Name(RenameMode::To)) => {}
-                                EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => {
-                                    if filtered.len() == 2 {
-                                        let _ = tx.blocking_send(LocalFileEvent::Renamed {
-                                            old_paths: vec![filtered[0].clone()],
-                                            new_paths: vec![filtered[1].clone()],
-                                        });
-                                    }
-                                }
-                                EventKind::Modify(ModifyKind::Name(RenameMode::Other)) => {
-                                    let _ = tx.blocking_send(LocalFileEvent::Modified(filtered));
-                                }
-                                EventKind::Modify(_) => {
-                                    let _ = tx.blocking_send(LocalFileEvent::Modified(filtered));
-                                }
-                                EventKind::Remove(_) => {
-                                    let _ = tx.blocking_send(LocalFileEvent::Deleted(filtered));
-                                }
-                                _ => {}
+                        match kind {
+                            EventKind::Create(_) => {
+                                let _ = tx.blocking_send(LocalFileEvent::Created(filtered));
                             }
+                            EventKind::Modify(ModifyKind::Name(RenameMode::From)) => {}
+                            EventKind::Modify(ModifyKind::Name(RenameMode::To)) => {}
+                            EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => {
+                                if filtered.len() == 2 {
+                                    let _ = tx.blocking_send(LocalFileEvent::Renamed {
+                                        old_paths: vec![filtered[0].clone()],
+                                        new_paths: vec![filtered[1].clone()],
+                                    });
+                                }
+                            }
+                            EventKind::Modify(ModifyKind::Name(RenameMode::Other)) => {
+                                let _ = tx.blocking_send(LocalFileEvent::Modified(filtered));
+                            }
+                            EventKind::Modify(_) => {
+                                let _ = tx.blocking_send(LocalFileEvent::Modified(filtered));
+                            }
+                            EventKind::Remove(_) => {
+                                let _ = tx.blocking_send(LocalFileEvent::Deleted(filtered));
+                            }
+                            _ => {}
                         }
                     }
-                    Err(errors) => {
-                        for e in errors {
-                            tracing::warn!("文件监听去抖错误: {}", e);
-                        }
+                }
+                Err(errors) => {
+                    for e in errors {
+                        tracing::warn!("文件监听去抖错误: {}", e);
                     }
                 }
             },

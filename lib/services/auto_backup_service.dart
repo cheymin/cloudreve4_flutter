@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../core/utils/app_logger.dart';
-import '../data/models/sync_config_model.dart';
 import '../services/storage_service.dart';
 import '../services/sync_service.dart';
 import 'auto_backup_foreground_service.dart';

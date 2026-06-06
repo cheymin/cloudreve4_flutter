@@ -61,7 +61,9 @@ pub struct SyncSummaryFfi {
 /// 同步事件（Rust → Dart 推送）
 #[derive(Debug, Clone)]
 pub enum SyncEventFfi {
-    StateChanged { new_state: String },
+    StateChanged {
+        new_state: String,
+    },
     Progress {
         synced: u64,
         total: u64,
@@ -84,8 +86,12 @@ pub enum SyncEventFfi {
         recoverable: bool,
     },
     TokenExpired,
-    DiskSpaceWarning { available_mb: u64 },
-    InitialSyncComplete { summary: SyncSummaryFfi },
+    DiskSpaceWarning {
+        available_mb: u64,
+    },
+    InitialSyncComplete {
+        summary: SyncSummaryFfi,
+    },
 
     // Worker 事件
     WorkerStarted {

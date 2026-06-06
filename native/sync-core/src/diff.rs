@@ -14,7 +14,12 @@ pub fn compute_diff(
     // 构建索引: relative_path → entry（统一正斜杠）
     let local_map: HashMap<String, &LocalFileEntry> = local_files
         .iter()
-        .map(|e| (crate::utils::normalize_path(&e.relative_path.to_string_lossy()), e))
+        .map(|e| {
+            (
+                crate::utils::normalize_path(&e.relative_path.to_string_lossy()),
+                e,
+            )
+        })
         .collect();
 
     let remote_map: HashMap<String, &RemoteFileEntry> = remote_files

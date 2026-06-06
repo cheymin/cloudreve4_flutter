@@ -175,7 +175,9 @@ impl SyncDb {
         // 添加 task_item 唯一索引（去重：保留 id 最小的记录）
         // 先清理重复数据，再建唯一索引
         let existing: Vec<String> = conn
-            .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_task_item_unique'")?
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_task_item_unique'",
+            )?
             .query_map([], |r| r.get(0))?
             .filter_map(|r| r.ok())
             .collect();
@@ -359,10 +361,7 @@ impl SyncDb {
 
     /// 查询所有占位符文件映射（用于 WCF 退出时清理）
     #[cfg(feature = "windows-cfapi")]
-    pub async fn list_placeholder_mappings(
-        &self,
-        sync_root_id: &str,
-    ) -> Result<Vec<FileMapping>> {
+    pub async fn list_placeholder_mappings(&self, sync_root_id: &str) -> Result<Vec<FileMapping>> {
         let pool = self.read_pool.clone();
         let sync_root_id = sync_root_id.to_string();
 
@@ -375,26 +374,30 @@ impl SyncDb {
                  FROM file_mapping WHERE sync_root_id = ?1 AND is_placeholder = 1",
             )?;
 
-            let mappings = stmt.query_map(rusqlite::params![sync_root_id], |row| {
-                Ok(FileMapping {
-                    id: row.get(0)?,
-                    sync_root_id: row.get(1)?,
-                    local_path: std::path::PathBuf::from(row.get::<_, String>(2)?),
-                    remote_uri: row.get(3)?,
-                    remote_file_id: row.get(4)?,
-                    local_hash: row.get(5)?,
-                    remote_hash: row.get(6)?,
-                    local_mtime: row.get(7)?,
-                    remote_mtime: row.get(8)?,
-                    local_size: row.get(9)?,
-                    remote_size: row.get(10)?,
-                    sync_status: parse_sync_status(&row.get::<_, String>(11)?),
-                    is_placeholder: row.get::<_, i32>(12)? != 0,
-                })
-            })?.filter_map(|m| m.ok()).collect();
+            let mappings = stmt
+                .query_map(rusqlite::params![sync_root_id], |row| {
+                    Ok(FileMapping {
+                        id: row.get(0)?,
+                        sync_root_id: row.get(1)?,
+                        local_path: std::path::PathBuf::from(row.get::<_, String>(2)?),
+                        remote_uri: row.get(3)?,
+                        remote_file_id: row.get(4)?,
+                        local_hash: row.get(5)?,
+                        remote_hash: row.get(6)?,
+                        local_mtime: row.get(7)?,
+                        remote_mtime: row.get(8)?,
+                        local_size: row.get(9)?,
+                        remote_size: row.get(10)?,
+                        sync_status: parse_sync_status(&row.get::<_, String>(11)?),
+                        is_placeholder: row.get::<_, i32>(12)? != 0,
+                    })
+                })?
+                .filter_map(|m| m.ok())
+                .collect();
 
             Ok(mappings)
-        }).await??;
+        })
+        .await??;
 
         Ok(result)
     }

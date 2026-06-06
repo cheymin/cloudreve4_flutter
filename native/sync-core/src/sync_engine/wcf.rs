@@ -18,7 +18,8 @@ impl SyncEngine {
             Err(e) => {
                 tracing::error!("WCF 水合: FileIdentity 反序列化失败: {}", e);
                 let _ = crate::platform::wcf::WcfPlatformAdapter::reject_fetch_data(
-                    request.connection_key, request.transfer_key,
+                    request.connection_key,
+                    request.transfer_key,
                 );
                 return;
             }
@@ -31,19 +32,26 @@ impl SyncEngine {
         if remote_uri.is_empty() {
             tracing::error!("WCF 水合: FileIdentity 中 uri 为空");
             let _ = crate::platform::wcf::WcfPlatformAdapter::reject_fetch_data(
-                request.connection_key, request.transfer_key,
+                request.connection_key,
+                request.transfer_key,
             );
             return;
         }
 
-        tracing::debug!("WCF 水合请求: uri={}, size={}, offset={}, length={}",
-            remote_uri, remote_size, request.required_offset, request.required_length);
+        tracing::debug!(
+            "WCF 水合请求: uri={}, size={}, offset={}, length={}",
+            remote_uri,
+            remote_size,
+            request.required_offset,
+            request.required_length
+        );
 
         let root_id = match &self.sync_root_id {
             Some(id) => id.clone(),
             None => {
                 let _ = crate::platform::wcf::WcfPlatformAdapter::reject_fetch_data(
-                    request.connection_key, request.transfer_key,
+                    request.connection_key,
+                    request.transfer_key,
                 );
                 return;
             }
@@ -51,7 +59,8 @@ impl SyncEngine {
 
         // 清理过期缓存（超过 5 分钟）
         let now = std::time::Instant::now();
-        self.hydration_cache.retain(|_, (_, ts)| now.duration_since(*ts).as_secs() < 300);
+        self.hydration_cache
+            .retain(|_, (_, ts)| now.duration_since(*ts).as_secs() < 300);
 
         // 尝试从缓存获取已下载的数据；cache miss 时下载并标记 is_new_download
         let (data, is_new_download) = if let Some(cached) = self.hydration_cache.get(&remote_uri) {
@@ -72,21 +81,27 @@ impl SyncEngine {
                     }
                     Err(e) => return Err(e),
                 };
-                let download_url = urls.into_iter().next()
-                    .ok_or_else(|| crate::errors::SyncError::Network("获取下载 URL 返回空列表".into()))?;
+                let download_url = urls.into_iter().next().ok_or_else(|| {
+                    crate::errors::SyncError::Network("获取下载 URL 返回空列表".into())
+                })?;
 
                 let data = crate::downloader::download_to_buffer(
                     &self.api,
                     &download_url,
                     config.bandwidth_limit,
-                ).await?;
+                )
+                .await?;
 
                 Ok::<Vec<u8>, crate::errors::SyncError>(data)
-            }.await;
+            }
+            .await;
 
             match download_result {
                 Ok(data) => {
-                    self.hydration_cache.insert(remote_uri.clone(), (data.clone(), std::time::Instant::now()));
+                    self.hydration_cache.insert(
+                        remote_uri.clone(),
+                        (data.clone(), std::time::Instant::now()),
+                    );
                     (data, true)
                 }
                 Err(e) => {
@@ -94,24 +109,29 @@ impl SyncEngine {
                     // 下载失败时记录一次统计
                     let now_str = chrono::Utc::now().to_rfc3339();
                     let task_id = format!("hydration_{}", uuid::Uuid::new_v4());
-                    if let Err(db_err) = self.db.record_standalone_task_item(
-                        &crate::models::WorkerTrigger::Hydration,
-                        &crate::models::SyncTaskItem {
-                            id: 0,
-                            task_id,
-                            relative_path: remote_uri.clone(),
-                            action_type: crate::models::TaskActionType::Hydration,
-                            status: crate::models::TaskItemStatus::Failed,
-                            file_size: remote_size,
-                            error_message: Some(e.to_string()),
-                            created_at: now_str.clone(),
-                            updated_at: now_str,
-                        },
-                    ).await {
+                    if let Err(db_err) = self
+                        .db
+                        .record_standalone_task_item(
+                            &crate::models::WorkerTrigger::Hydration,
+                            &crate::models::SyncTaskItem {
+                                id: 0,
+                                task_id,
+                                relative_path: remote_uri.clone(),
+                                action_type: crate::models::TaskActionType::Hydration,
+                                status: crate::models::TaskItemStatus::Failed,
+                                file_size: remote_size,
+                                error_message: Some(e.to_string()),
+                                created_at: now_str.clone(),
+                                updated_at: now_str,
+                            },
+                        )
+                        .await
+                    {
                         tracing::warn!("WCF 水合失败统计记录失败: {}", db_err);
                     }
                     let _ = crate::platform::wcf::WcfPlatformAdapter::reject_fetch_data(
-                        request.connection_key, request.transfer_key,
+                        request.connection_key,
+                        request.transfer_key,
                     );
                     return;
                 }
@@ -139,46 +159,69 @@ impl SyncEngine {
             offset as i64,
         ) {
             Ok(_) => {
-                tracing::debug!("WCF 水合数据推送: {} offset={} len={}", remote_uri, offset, transfer_data.len());
+                tracing::debug!(
+                    "WCF 水合数据推送: {} offset={} len={}",
+                    remote_uri,
+                    offset,
+                    transfer_data.len()
+                );
 
                 // 仅在首次下载（cache miss）时更新映射和记录统计，避免同一文件多次 range 请求重复计数
                 if is_new_download {
-                    if let Ok(Some(mapping)) = self.db.find_mapping_by_remote_uri(&root_id, &remote_uri).await {
-                        self.suppress_paths.insert(mapping.local_path.to_string_lossy().into_owned(), std::time::Instant::now());
-                        let _ = self.db.upsert_file_mapping(&FileMapping {
-                            id: mapping.id,
-                            sync_root_id: mapping.sync_root_id,
-                            local_path: mapping.local_path.clone(),
-                            remote_uri: mapping.remote_uri.clone(),
-                            remote_file_id: mapping.remote_file_id.clone(),
-                            local_hash: None,
-                            remote_hash: if remote_hash.is_empty() { mapping.remote_hash.clone() } else { Some(remote_hash.clone()) },
-                            local_mtime: mapping.local_mtime,
-                            remote_mtime: mapping.remote_mtime,
-                            local_size: mapping.local_size,
-                            remote_size: Some(remote_size),
-                            sync_status: SyncFileStatus::Synced,
-                            is_placeholder: false,
-                        }).await;
+                    if let Ok(Some(mapping)) = self
+                        .db
+                        .find_mapping_by_remote_uri(&root_id, &remote_uri)
+                        .await
+                    {
+                        self.suppress_paths.insert(
+                            mapping.local_path.to_string_lossy().into_owned(),
+                            std::time::Instant::now(),
+                        );
+                        let _ = self
+                            .db
+                            .upsert_file_mapping(&FileMapping {
+                                id: mapping.id,
+                                sync_root_id: mapping.sync_root_id,
+                                local_path: mapping.local_path.clone(),
+                                remote_uri: mapping.remote_uri.clone(),
+                                remote_file_id: mapping.remote_file_id.clone(),
+                                local_hash: None,
+                                remote_hash: if remote_hash.is_empty() {
+                                    mapping.remote_hash.clone()
+                                } else {
+                                    Some(remote_hash.clone())
+                                },
+                                local_mtime: mapping.local_mtime,
+                                remote_mtime: mapping.remote_mtime,
+                                local_size: mapping.local_size,
+                                remote_size: Some(remote_size),
+                                sync_status: SyncFileStatus::Synced,
+                                is_placeholder: false,
+                            })
+                            .await;
 
                         // 记录水合操作到统计
                         let now_str = chrono::Utc::now().to_rfc3339();
                         let local_path_str = mapping.local_path.to_string_lossy().to_string();
                         let task_id = format!("hydration_{}", uuid::Uuid::new_v4());
-                        if let Err(e) = self.db.record_standalone_task_item(
-                            &crate::models::WorkerTrigger::Hydration,
-                            &crate::models::SyncTaskItem {
-                                id: 0,
-                                task_id,
-                                relative_path: local_path_str,
-                                action_type: crate::models::TaskActionType::Hydration,
-                                status: crate::models::TaskItemStatus::Completed,
-                                file_size: remote_size,
-                                error_message: None,
-                                created_at: now_str.clone(),
-                                updated_at: now_str,
-                            },
-                        ).await {
+                        if let Err(e) = self
+                            .db
+                            .record_standalone_task_item(
+                                &crate::models::WorkerTrigger::Hydration,
+                                &crate::models::SyncTaskItem {
+                                    id: 0,
+                                    task_id,
+                                    relative_path: local_path_str,
+                                    action_type: crate::models::TaskActionType::Hydration,
+                                    status: crate::models::TaskItemStatus::Completed,
+                                    file_size: remote_size,
+                                    error_message: None,
+                                    created_at: now_str.clone(),
+                                    updated_at: now_str,
+                                },
+                            )
+                            .await
+                        {
                             tracing::warn!("WCF 水合统计记录失败: {}", e);
                         }
                     }
@@ -212,7 +255,11 @@ impl SyncEngine {
                 if let Some(adapter) = self.platform_adapter.lock().unwrap().as_ref() {
                     match adapter.create_placeholder_for_remote(
                         local_path.parent().unwrap_or(local_root),
-                        local_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default().as_str(),
+                        local_path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_default()
+                            .as_str(),
                         remote.size,
                         &remote.uri,
                         remote.hash.as_deref(),
@@ -224,21 +271,24 @@ impl SyncEngine {
                 }
             }
 
-            let _ = self.db.upsert_file_mapping(&FileMapping {
-                id: 0,
-                sync_root_id: root_id.to_string(),
-                local_path: std::path::PathBuf::from(relative),
-                remote_uri: remote.uri.clone(),
-                remote_file_id: remote.file_id.clone(),
-                local_hash: None,
-                remote_hash: remote.hash.clone(),
-                local_mtime: None,
-                remote_mtime: Some(remote.mtime_ms),
-                local_size: None,
-                remote_size: Some(remote.size),
-                sync_status: SyncFileStatus::Placeholder,
-                is_placeholder: true,
-            }).await;
+            let _ = self
+                .db
+                .upsert_file_mapping(&FileMapping {
+                    id: 0,
+                    sync_root_id: root_id.to_string(),
+                    local_path: std::path::PathBuf::from(relative),
+                    remote_uri: remote.uri.clone(),
+                    remote_file_id: remote.file_id.clone(),
+                    local_hash: None,
+                    remote_hash: remote.hash.clone(),
+                    local_mtime: None,
+                    remote_mtime: Some(remote.mtime_ms),
+                    local_size: None,
+                    remote_size: Some(remote.size),
+                    sync_status: SyncFileStatus::Placeholder,
+                    is_placeholder: true,
+                })
+                .await;
         }
     }
 
@@ -284,31 +334,36 @@ impl SyncEngine {
     fn list_placeholders_sync(&self, sync_root_id: &str) -> anyhow::Result<Vec<FileMapping>> {
         let pool = self.db.read_pool();
         let conn = pool.get().map_err(|e| anyhow::anyhow!("{}", e))?;
-        let mut stmt = conn.prepare(
-            "SELECT id, sync_root_id, local_path, remote_uri, remote_file_id,
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, sync_root_id, local_path, remote_uri, remote_file_id,
                     local_hash, remote_hash, local_mtime, remote_mtime,
                     local_size, remote_size, sync_status, is_placeholder
              FROM file_mapping WHERE sync_root_id = ?1 AND is_placeholder = 1",
-        ).map_err(|e| anyhow::anyhow!("{}", e))?;
+            )
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-        let mappings = stmt.query_map(rusqlite::params![sync_root_id], |row| {
-            Ok(FileMapping {
-                id: row.get(0)?,
-                sync_root_id: row.get(1)?,
-                local_path: std::path::PathBuf::from(row.get::<_, String>(2)?),
-                remote_uri: row.get(3)?,
-                remote_file_id: row.get(4)?,
-                local_hash: row.get(5)?,
-                remote_hash: row.get(6)?,
-                local_mtime: row.get(7)?,
-                remote_mtime: row.get(8)?,
-                local_size: row.get(9)?,
-                remote_size: row.get(10)?,
-                sync_status: crate::sync_db::parse_sync_status(&row.get::<_, String>(11)?),
-                is_placeholder: row.get::<_, i32>(12)? != 0,
+        let mappings = stmt
+            .query_map(rusqlite::params![sync_root_id], |row| {
+                Ok(FileMapping {
+                    id: row.get(0)?,
+                    sync_root_id: row.get(1)?,
+                    local_path: std::path::PathBuf::from(row.get::<_, String>(2)?),
+                    remote_uri: row.get(3)?,
+                    remote_file_id: row.get(4)?,
+                    local_hash: row.get(5)?,
+                    remote_hash: row.get(6)?,
+                    local_mtime: row.get(7)?,
+                    remote_mtime: row.get(8)?,
+                    local_size: row.get(9)?,
+                    remote_size: row.get(10)?,
+                    sync_status: crate::sync_db::parse_sync_status(&row.get::<_, String>(11)?),
+                    is_placeholder: row.get::<_, i32>(12)? != 0,
+                })
             })
-        }).map_err(|e| anyhow::anyhow!("{}", e))?
-        .filter_map(|m| m.ok()).collect();
+            .map_err(|e| anyhow::anyhow!("{}", e))?
+            .filter_map(|m| m.ok())
+            .collect();
 
         Ok(mappings)
     }

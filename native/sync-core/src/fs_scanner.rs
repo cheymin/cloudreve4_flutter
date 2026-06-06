@@ -1,23 +1,16 @@
-#[cfg(unix)]
-use std::collections::HashSet;
 use crate::errors::Result;
 use crate::models::LocalFileEntry;
 use crate::utils::quick_hash;
+#[cfg(unix)]
+use std::collections::HashSet;
 use std::path::Path;
 use walkdir::WalkDir;
 
 /// 需要跳过的文件/目录名前缀和名称
-pub const SKIP_NAMES: &[&str] = &[
-    ".DS_Store",
-    "Thumbs.db",
-    "desktop.ini",
-];
+pub const SKIP_NAMES: &[&str] = &[".DS_Store", "Thumbs.db", "desktop.ini"];
 
 /// 需要跳过的文件扩展名（同步临时文件）
-pub const SKIP_EXTENSIONS: &[&str] = &[
-    "sync_tmp",
-    "sync_temp",
-];
+pub const SKIP_EXTENSIONS: &[&str] = &["sync_tmp", "sync_temp"];
 
 pub struct FsScanner;
 
@@ -60,7 +53,12 @@ impl FsScanner {
 
             let file_name = entry.file_name().to_string_lossy();
             let depth = entry.depth();
-            tracing::trace!("扫描: depth={}, is_dir={}, name={}", depth, entry.file_type().is_dir(), file_name);
+            tracing::trace!(
+                "扫描: depth={}, is_dir={}, name={}",
+                depth,
+                entry.file_type().is_dir(),
+                file_name
+            );
 
             // 符号链接处理
             if entry.path_is_symlink() && !follow_symlinks {
@@ -108,7 +106,9 @@ impl FsScanner {
                 }
             }
 
-            let relative_path = entry.path().strip_prefix(root)
+            let relative_path = entry
+                .path()
+                .strip_prefix(root)
                 .unwrap_or(entry.path())
                 .to_path_buf();
 
@@ -128,7 +128,8 @@ impl FsScanner {
                 });
             } else if metadata.is_file() {
                 let size = metadata.len();
-                let mtime_ms = metadata.modified()
+                let mtime_ms = metadata
+                    .modified()
                     .ok()
                     .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                     .map(|d| d.as_millis() as i64)
@@ -154,7 +155,12 @@ impl FsScanner {
 
         let dirs = entries.iter().filter(|e| e.is_dir).count();
         let files = entries.iter().filter(|e| !e.is_dir).count();
-        tracing::debug!("扫描完成: {} 个条目 ({} 目录, {} 文件)", entries.len(), dirs, files);
+        tracing::debug!(
+            "扫描完成: {} 个条目 ({} 目录, {} 文件)",
+            entries.len(),
+            dirs,
+            files
+        );
 
         Ok(entries)
     }
@@ -162,7 +168,5 @@ impl FsScanner {
 
 /// 根据文件扩展名推断 MIME 类型
 pub fn guess_mime_type(path: &Path) -> Option<String> {
-    mime_guess::from_path(path)
-        .first()
-        .map(|m| m.to_string())
+    mime_guess::from_path(path).first().map(|m| m.to_string())
 }

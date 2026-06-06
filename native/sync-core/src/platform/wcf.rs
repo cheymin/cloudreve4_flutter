@@ -32,25 +32,20 @@ pub struct WcfPlatformAdapter {
 
 #[cfg(feature = "windows-cfapi")]
 impl WcfPlatformAdapter {
-    pub fn new(
-        db: Arc<SyncDb>,
-        api: Arc<ApiClient>,
-        config: SyncConfig,
-    ) -> anyhow::Result<Self> {
+    pub fn new(db: Arc<SyncDb>, api: Arc<ApiClient>, config: SyncConfig) -> anyhow::Result<Self> {
         let mut adapter = sync_windows::WindowsAdapter::new();
 
         // 注册同步根目录
-        adapter.register_sync_root(
-            &config.local_root,
-            "Cloudreve4",
-            "1.0",
-        )?;
+        adapter.register_sync_root(&config.local_root, "Cloudreve4", "1.0")?;
 
         // 连接同步根，注册回调
         adapter.connect_sync_root(&config.local_root)?;
         let fetch_rx = adapter.take_callback_receiver();
 
-        tracing::info!("WcfPlatformAdapter 初始化完成: {}", config.local_root.display());
+        tracing::info!(
+            "WcfPlatformAdapter 初始化完成: {}",
+            config.local_root.display()
+        );
 
         Ok(Self {
             adapter: std::sync::Mutex::new(adapter),
@@ -81,27 +76,33 @@ impl WcfPlatformAdapter {
             "size": file_size,
             "hash": remote_hash.unwrap_or(""),
             "mtime_ms": remote_mtime_ms,
-        })).unwrap_or_default();
+        }))
+        .unwrap_or_default();
 
-        self.adapter.lock().unwrap().create_single_placeholder(
-            base_dir,
-            file_name,
-            file_size,
-            &file_identity,
-        ).map_err(|e| crate::errors::SyncError::FileSystem(e.to_string()))?;
+        self.adapter
+            .lock()
+            .unwrap()
+            .create_single_placeholder(base_dir, file_name, file_size, &file_identity)
+            .map_err(|e| crate::errors::SyncError::FileSystem(e.to_string()))?;
 
         Ok(())
     }
 
     /// 水合文件（按需下载）
     pub fn hydrate_file(&self, local_path: &Path) -> Result<()> {
-        self.adapter.lock().unwrap().hydrate_placeholder(local_path)
+        self.adapter
+            .lock()
+            .unwrap()
+            .hydrate_placeholder(local_path)
             .map_err(|e| crate::errors::SyncError::FileSystem(e.to_string()))
     }
 
     /// 脱水文件（释放本地空间）
     pub fn dehydrate_file(&self, local_path: &Path) -> Result<()> {
-        self.adapter.lock().unwrap().dehydrate_placeholder(local_path)
+        self.adapter
+            .lock()
+            .unwrap()
+            .dehydrate_placeholder(local_path)
             .map_err(|e| crate::errors::SyncError::FileSystem(e.to_string()))
     }
 
@@ -117,17 +118,17 @@ impl WcfPlatformAdapter {
     }
 
     /// 通过 CfExecute 报告水合失败
-    pub fn reject_fetch_data(
-        connection_key: i64,
-        transfer_key: i64,
-    ) -> Result<()> {
+    pub fn reject_fetch_data(connection_key: i64, transfer_key: i64) -> Result<()> {
         sync_windows::WindowsAdapter::reject_fetch_data(connection_key, transfer_key)
             .map_err(|e| crate::errors::SyncError::FileSystem(e.to_string()))
     }
 
     /// 断开连接
     pub fn disconnect(&self) -> Result<()> {
-        self.adapter.lock().unwrap().disconnect()
+        self.adapter
+            .lock()
+            .unwrap()
+            .disconnect()
             .map_err(|e| crate::errors::SyncError::FileSystem(e.to_string()))
     }
 }
@@ -142,11 +143,10 @@ impl PlaceholderCreator for WcfPlatformAdapter {
         file_size: u64,
         file_identity: &[u8],
     ) -> Result<()> {
-        self.adapter.lock().unwrap().create_single_placeholder(
-            base_dir,
-            &file_name,
-            file_size,
-            file_identity,
-        ).map_err(|e| crate::errors::SyncError::FileSystem(e.to_string()))
+        self.adapter
+            .lock()
+            .unwrap()
+            .create_single_placeholder(base_dir, &file_name, file_size, file_identity)
+            .map_err(|e| crate::errors::SyncError::FileSystem(e.to_string()))
     }
 }

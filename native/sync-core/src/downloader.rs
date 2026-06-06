@@ -17,9 +17,10 @@ pub async fn download_file(
     semaphore: &Semaphore,
     root_id: &str,
 ) -> Result<()> {
-    let remote = action.remote_entry.as_ref().ok_or_else(|| {
-        SyncError::Internal("下载操作缺少远程文件信息".into())
-    })?;
+    let remote = action
+        .remote_entry
+        .as_ref()
+        .ok_or_else(|| SyncError::Internal("下载操作缺少远程文件信息".into()))?;
 
     let _lock = file_locks.acquire(&action.relative_path).await;
 
@@ -32,7 +33,9 @@ pub async fn download_file(
 
     let local_path = config.local_root.join(&action.relative_path);
 
-    let _permit = semaphore.acquire().await
+    let _permit = semaphore
+        .acquire()
+        .await
         .map_err(|e| SyncError::Internal(format!("获取传输信号量失败: {}", e)))?;
 
     // 信号量获取后标记为 Running（实际开始传输）
@@ -46,7 +49,12 @@ pub async fn download_file(
         )
         .await;
 
-    tracing::info!("[{}] 开始下载: {} ({}bytes)", task_id, action.relative_path, remote.size);
+    tracing::info!(
+        "[{}] 开始下载: {} ({}bytes)",
+        task_id,
+        action.relative_path,
+        remote.size
+    );
 
     // 确保父目录存在
     if let Some(parent) = local_path.parent() {
@@ -64,7 +72,10 @@ pub async fn download_file(
 
         // 检查临时文件已有大小，用于断点续传
         let resume_offset = if tmp_path.exists() {
-            tokio::fs::metadata(&tmp_path).await.map(|m| m.len()).unwrap_or(0)
+            tokio::fs::metadata(&tmp_path)
+                .await
+                .map(|m| m.len())
+                .unwrap_or(0)
         } else {
             0
         };
@@ -74,7 +85,14 @@ pub async fn download_file(
             Err(SyncError::Auth(_)) => return Err(SyncError::Auth("Token 过期".into())),
             Err(e) if attempt <= max_retries => {
                 let delay = crate::utils::retry_delay_ms(attempt, 1000, 30000);
-                tracing::warn!("[{}] 下载重试 ({}/{}): {} 获取链接失败: {}", task_id, attempt, max_retries, action.relative_path, e);
+                tracing::warn!(
+                    "[{}] 下载重试 ({}/{}): {} 获取链接失败: {}",
+                    task_id,
+                    attempt,
+                    max_retries,
+                    action.relative_path,
+                    e
+                );
                 tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
                 continue;
             }
@@ -94,7 +112,14 @@ pub async fn download_file(
             Err(SyncError::Auth(_)) => return Err(SyncError::Auth("Token 过期".into())),
             Err(e) if attempt <= max_retries => {
                 let delay = crate::utils::retry_delay_ms(attempt, 1000, 30000);
-                tracing::warn!("[{}] 下载重试 ({}/{}): {} 连接失败: {}", task_id, attempt, max_retries, action.relative_path, e);
+                tracing::warn!(
+                    "[{}] 下载重试 ({}/{}): {} 连接失败: {}",
+                    task_id,
+                    attempt,
+                    max_retries,
+                    action.relative_path,
+                    e
+                );
                 tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
                 continue;
             }
@@ -103,15 +128,26 @@ pub async fn download_file(
 
         match stream_to_file(resp, &tmp_path, config.bandwidth_limit, resume_offset).await {
             Ok(_) => {
-                tracing::debug!("[{}] 下载写入完成: {} ({}bytes)", task_id, tmp_path.display(), remote.size);
+                tracing::debug!(
+                    "[{}] 下载写入完成: {} ({}bytes)",
+                    task_id,
+                    tmp_path.display(),
+                    remote.size
+                );
                 tokio::fs::rename(&tmp_path, &local_path).await?;
 
                 if remote.mtime_ms > 0 {
-                    let mtime = std::time::UNIX_EPOCH + std::time::Duration::from_millis(remote.mtime_ms as u64);
-                    let _ = filetime::set_file_mtime(&local_path, filetime::FileTime::from_system_time(mtime));
+                    let mtime = std::time::UNIX_EPOCH
+                        + std::time::Duration::from_millis(remote.mtime_ms as u64);
+                    let _ = filetime::set_file_mtime(
+                        &local_path,
+                        filetime::FileTime::from_system_time(mtime),
+                    );
                 }
 
-                let local_hash = crate::utils::quick_hash(&local_path, remote.size).await.unwrap_or_default();
+                let local_hash = crate::utils::quick_hash(&local_path, remote.size)
+                    .await
+                    .unwrap_or_default();
                 db.upsert_file_mapping(&FileMapping {
                     id: 0,
                     sync_root_id: root_id.to_string(),
@@ -126,7 +162,8 @@ pub async fn download_file(
                     remote_size: Some(remote.size),
                     sync_status: SyncFileStatus::Synced,
                     is_placeholder: false,
-                }).await?;
+                })
+                .await?;
 
                 tracing::info!("[{}] 下载完成: {}", task_id, action.relative_path);
                 return Ok(());
@@ -134,16 +171,28 @@ pub async fn download_file(
             Err(e) if attempt <= max_retries => {
                 let delay = crate::utils::retry_delay_ms(attempt, 1000, 30000);
                 // 保留临时文件用于断点续传
-                let existing_size = tokio::fs::metadata(&tmp_path).await.map(|m| m.len()).unwrap_or(0);
+                let existing_size = tokio::fs::metadata(&tmp_path)
+                    .await
+                    .map(|m| m.len())
+                    .unwrap_or(0);
                 if existing_size > 0 {
                     tracing::warn!(
                         "[{}] 下载重试 ({}/{}): {} 写入失败(已下载{}bytes，将从断点续传): {}",
-                        task_id, attempt, max_retries, action.relative_path, existing_size, e,
+                        task_id,
+                        attempt,
+                        max_retries,
+                        action.relative_path,
+                        existing_size,
+                        e,
                     );
                 } else {
                     tracing::warn!(
                         "[{}] 下载重试 ({}/{}): {} 写入失败: {}",
-                        task_id, attempt, max_retries, action.relative_path, e,
+                        task_id,
+                        attempt,
+                        max_retries,
+                        action.relative_path,
+                        e,
                     );
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
@@ -165,8 +214,8 @@ pub async fn stream_to_file(
     bandwidth_limit: Option<u64>,
     resume_offset: u64,
 ) -> Result<()> {
-    use tokio::io::{AsyncWriteExt, AsyncSeekExt};
     use futures_util::StreamExt;
+    use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
     let mut file = if resume_offset > 0 && tmp_path.exists() {
         // 断点续传：追加模式
@@ -199,9 +248,8 @@ pub async fn stream_to_file(
                 total_bytes += chunk.len() as u64;
                 file.write_all(&chunk).await?;
 
-                let expected_elapsed = std::time::Duration::from_micros(
-                    total_bytes * 1_000_000 / limit
-                );
+                let expected_elapsed =
+                    std::time::Duration::from_micros(total_bytes * 1_000_000 / limit);
                 let actual_elapsed = transfer_start.elapsed();
                 if expected_elapsed > actual_elapsed {
                     tokio::time::sleep(expected_elapsed - actual_elapsed).await;
@@ -237,15 +285,24 @@ pub async fn download_file_from_url(
         0
     };
 
-    let resp = request.send().await.map_err(|e| SyncError::Network(e.to_string()))?;
+    let resp = request
+        .send()
+        .await
+        .map_err(|e| SyncError::Network(e.to_string()))?;
 
     if !resp.status().is_success() && resp.status().as_u16() != 206 {
-        return Err(SyncError::Network(format!("下载失败: HTTP {}", resp.status())));
+        return Err(SyncError::Network(format!(
+            "下载失败: HTTP {}",
+            resp.status()
+        )));
     }
 
     let tmp_path = local_path.with_extension(format!(
         "{}.sync_tmp",
-        local_path.extension().map(|e| e.to_string_lossy().to_string()).unwrap_or_default()
+        local_path
+            .extension()
+            .map(|e| e.to_string_lossy().to_string())
+            .unwrap_or_default()
     ));
 
     stream_to_file(resp, &tmp_path, bandwidth_limit, resume_offset).await?;
@@ -271,7 +328,10 @@ pub async fn download_to_buffer(
     let resp = api.stream_download(download_url, 0).await?;
 
     if !resp.status().is_success() {
-        return Err(SyncError::Network(format!("下载失败: HTTP {}", resp.status())));
+        return Err(SyncError::Network(format!(
+            "下载失败: HTTP {}",
+            resp.status()
+        )));
     }
 
     let content_length = resp.content_length();
@@ -293,9 +353,8 @@ pub async fn download_to_buffer(
                 total_bytes += chunk.len() as u64;
                 buffer.extend_from_slice(&chunk);
 
-                let expected_elapsed = std::time::Duration::from_micros(
-                    total_bytes * 1_000_000 / limit
-                );
+                let expected_elapsed =
+                    std::time::Duration::from_micros(total_bytes * 1_000_000 / limit);
                 let actual_elapsed = transfer_start.elapsed();
                 if expected_elapsed > actual_elapsed {
                     tokio::time::sleep(expected_elapsed - actual_elapsed).await;

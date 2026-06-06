@@ -15,20 +15,89 @@ impl SyncEngine {
     ) {
         use crate::platform::fuse::FuseRequest;
         match request {
-            FuseRequest::Read { inode, remote_uri, offset, length, reply_tx } => {
-                self.handle_fuse_read(inode, &remote_uri, offset, length, reply_tx, local_root).await;
+            FuseRequest::Read {
+                inode,
+                remote_uri,
+                offset,
+                length,
+                reply_tx,
+            } => {
+                self.handle_fuse_read(inode, &remote_uri, offset, length, reply_tx, local_root)
+                    .await;
             }
-            FuseRequest::Upload { inode, parent_ino, name, relative_path, data, tmp_path, mtime_ms, overwrite, reply_tx } => {
-                self.handle_fuse_upload(inode, parent_ino, &name, &relative_path, data, tmp_path.as_deref(), mtime_ms, overwrite, reply_tx).await;
+            FuseRequest::Upload {
+                inode,
+                parent_ino,
+                name,
+                relative_path,
+                data,
+                tmp_path,
+                mtime_ms,
+                overwrite,
+                reply_tx,
+            } => {
+                self.handle_fuse_upload(
+                    inode,
+                    parent_ino,
+                    &name,
+                    &relative_path,
+                    data,
+                    tmp_path.as_deref(),
+                    mtime_ms,
+                    overwrite,
+                    reply_tx,
+                )
+                .await;
             }
-            FuseRequest::Mkdir { inode, parent_ino, name, relative_path, reply_tx } => {
-                self.handle_fuse_mkdir(inode, parent_ino, &name, &relative_path, reply_tx).await;
+            FuseRequest::Mkdir {
+                inode,
+                parent_ino,
+                name,
+                relative_path,
+                reply_tx,
+            } => {
+                self.handle_fuse_mkdir(inode, parent_ino, &name, &relative_path, reply_tx)
+                    .await;
             }
-            FuseRequest::Unlink { inode, name, is_dir, remote_uri, relative_path, reply_tx } => {
-                self.handle_fuse_unlink(inode, &name, is_dir, &remote_uri, &relative_path, reply_tx).await;
+            FuseRequest::Unlink {
+                inode,
+                name,
+                is_dir,
+                remote_uri,
+                relative_path,
+                reply_tx,
+            } => {
+                self.handle_fuse_unlink(
+                    inode,
+                    &name,
+                    is_dir,
+                    &remote_uri,
+                    &relative_path,
+                    reply_tx,
+                )
+                .await;
             }
-            FuseRequest::Rename { inode, old_name, old_relative_path, old_remote_uri, new_parent_ino, new_name, new_relative_path, reply_tx } => {
-                self.handle_fuse_rename(inode, &old_name, &old_relative_path, &old_remote_uri, new_parent_ino, &new_name, &new_relative_path, reply_tx).await;
+            FuseRequest::Rename {
+                inode,
+                old_name,
+                old_relative_path,
+                old_remote_uri,
+                new_parent_ino,
+                new_name,
+                new_relative_path,
+                reply_tx,
+            } => {
+                self.handle_fuse_rename(
+                    inode,
+                    &old_name,
+                    &old_relative_path,
+                    &old_remote_uri,
+                    new_parent_ino,
+                    &new_name,
+                    &new_relative_path,
+                    reply_tx,
+                )
+                .await;
             }
         }
     }
@@ -43,7 +112,13 @@ impl SyncEngine {
         reply_tx: tokio::sync::oneshot::Sender<Result<Vec<u8>, String>>,
         _local_root: &std::path::Path,
     ) {
-        tracing::debug!("FUSE 水合请求: ino={}, uri={}, offset={}, length={}", inode, remote_uri, offset, length);
+        tracing::debug!(
+            "FUSE 水合请求: ino={}, uri={}, offset={}, length={}",
+            inode,
+            remote_uri,
+            offset,
+            length
+        );
 
         let root_id = match &self.sync_root_id {
             Some(id) => id.clone(),
@@ -56,7 +131,8 @@ impl SyncEngine {
         let remote_uri_owned = remote_uri.to_string();
 
         let now = std::time::Instant::now();
-        self.hydration_cache.retain(|_, (_, ts)| now.duration_since(*ts).as_secs() < 300);
+        self.hydration_cache
+            .retain(|_, (_, ts)| now.duration_since(*ts).as_secs() < 300);
 
         let data = if let Some(cached) = self.hydration_cache.get(&remote_uri_owned) {
             tracing::debug!("FUSE 水合缓存命中: {}", remote_uri_owned);
@@ -76,21 +152,27 @@ impl SyncEngine {
                     }
                     Err(e) => return Err(e),
                 };
-                let download_url = urls.into_iter().next()
-                    .ok_or_else(|| crate::errors::SyncError::Network("获取下载 URL 返回空列表".into()))?;
+                let download_url = urls.into_iter().next().ok_or_else(|| {
+                    crate::errors::SyncError::Network("获取下载 URL 返回空列表".into())
+                })?;
 
                 let data = crate::downloader::download_to_buffer(
                     &self.api,
                     &download_url,
                     config.bandwidth_limit,
-                ).await?;
+                )
+                .await?;
 
                 Ok::<Vec<u8>, crate::errors::SyncError>(data)
-            }.await;
+            }
+            .await;
 
             match download_result {
                 Ok(data) => {
-                    self.hydration_cache.insert(remote_uri_owned.clone(), (data.clone(), std::time::Instant::now()));
+                    self.hydration_cache.insert(
+                        remote_uri_owned.clone(),
+                        (data.clone(), std::time::Instant::now()),
+                    );
                     data
                 }
                 Err(e) => {
@@ -101,22 +183,29 @@ impl SyncEngine {
             }
         };
 
-        if let Ok(Some(mapping)) = self.db.find_mapping_by_remote_uri(&root_id, &remote_uri_owned).await {
-            let _ = self.db.upsert_file_mapping(&FileMapping {
-                id: mapping.id,
-                sync_root_id: mapping.sync_root_id,
-                local_path: mapping.local_path.clone(),
-                remote_uri: mapping.remote_uri.clone(),
-                remote_file_id: mapping.remote_file_id.clone(),
-                local_hash: None,
-                remote_hash: mapping.remote_hash.clone(),
-                local_mtime: mapping.local_mtime,
-                remote_mtime: mapping.remote_mtime,
-                local_size: None,
-                remote_size: Some(data.len() as u64),
-                sync_status: SyncFileStatus::Synced,
-                is_placeholder: false,
-            }).await;
+        if let Ok(Some(mapping)) = self
+            .db
+            .find_mapping_by_remote_uri(&root_id, &remote_uri_owned)
+            .await
+        {
+            let _ = self
+                .db
+                .upsert_file_mapping(&FileMapping {
+                    id: mapping.id,
+                    sync_root_id: mapping.sync_root_id,
+                    local_path: mapping.local_path.clone(),
+                    remote_uri: mapping.remote_uri.clone(),
+                    remote_file_id: mapping.remote_file_id.clone(),
+                    local_hash: None,
+                    remote_hash: mapping.remote_hash.clone(),
+                    local_mtime: mapping.local_mtime,
+                    remote_mtime: mapping.remote_mtime,
+                    local_size: None,
+                    remote_size: Some(data.len() as u64),
+                    sync_status: SyncFileStatus::Synced,
+                    is_placeholder: false,
+                })
+                .await;
         }
 
         let _ = reply_tx.send(Ok(data));
@@ -148,13 +237,26 @@ impl SyncEngine {
         let remote_root = &config.remote_root;
         let file_uri = format!("{}/{}", remote_root, relative_path);
 
-        tracing::info!("FUSE 上传: {} ({}bytes, overwrite={})", relative_path, data.len(), overwrite);
+        tracing::info!(
+            "FUSE 上传: {} ({}bytes, overwrite={})",
+            relative_path,
+            data.len(),
+            overwrite
+        );
 
         // 确保远程父目录存在
         if let Some(parent) = std::path::PathBuf::from(relative_path).parent() {
             let parent_str = parent.to_string_lossy().to_string();
             if !parent_str.is_empty() {
-                if let Err(e) = crate::uploader::ensure_remote_dirs("fuse", remote_root, &parent_str, &self.api, &self.ensured_dirs).await {
+                if let Err(e) = crate::uploader::ensure_remote_dirs(
+                    "fuse",
+                    remote_root,
+                    &parent_str,
+                    &self.api,
+                    &self.ensured_dirs,
+                )
+                .await
+                {
                     tracing::warn!("FUSE 上传: 确保远程父目录失败 {}: {}", parent_str, e);
                 }
             }
@@ -180,7 +282,9 @@ impl SyncEngine {
         // 创建上传会话
         let session = match crate::uploader::retry_upload_session(
             "fuse", &file_uri, file_size, 3, overwrite, None, None, None, &self.api,
-        ).await {
+        )
+        .await
+        {
             Ok(s) => s,
             Err(e) => {
                 let _ = reply_tx.send(Err(format!("创建上传会话失败: {}", e)));
@@ -198,7 +302,11 @@ impl SyncEngine {
             let chunk = &file_data[offset..end];
             let mut chunk_retries = 0u32;
             loop {
-                match self.api.upload_chunk(&session, index, chunk, file_size, "fuse").await {
+                match self
+                    .api
+                    .upload_chunk(&session, index, chunk, file_size, "fuse")
+                    .await
+                {
                     Ok(_) => break,
                     Err(e) if chunk_retries < 3 => {
                         chunk_retries += 1;
@@ -232,26 +340,35 @@ impl SyncEngine {
         };
 
         // 更新 DB mapping
-        let _ = self.db.upsert_file_mapping(&FileMapping {
-            id: 0,
-            sync_root_id: root_id,
-            local_path: std::path::PathBuf::from(relative_path),
-            remote_uri: file_uri.clone(),
-            remote_file_id,
-            local_hash: None,
-            remote_hash: remote_hash.clone(),
-            local_mtime: Some(_mtime_ms),
-            remote_mtime: Some(_mtime_ms),
-            local_size: Some(file_size),
-            remote_size: Some(file_size),
-            sync_status: SyncFileStatus::Synced,
-            is_placeholder: false,
-        }).await;
+        let _ = self
+            .db
+            .upsert_file_mapping(&FileMapping {
+                id: 0,
+                sync_root_id: root_id,
+                local_path: std::path::PathBuf::from(relative_path),
+                remote_uri: file_uri.clone(),
+                remote_file_id,
+                local_hash: None,
+                remote_hash: remote_hash.clone(),
+                local_mtime: Some(_mtime_ms),
+                remote_mtime: Some(_mtime_ms),
+                local_size: Some(file_size),
+                remote_size: Some(file_size),
+                sync_status: SyncFileStatus::Synced,
+                is_placeholder: false,
+            })
+            .await;
 
         // 抑制 SSE 回弹
-        self.suppress_paths.insert(relative_path.to_string(), std::time::Instant::now());
+        self.suppress_paths
+            .insert(relative_path.to_string(), std::time::Instant::now());
 
-        tracing::info!("FUSE 上传完成: {} → {} ({}bytes)", name, file_uri, file_size);
+        tracing::info!(
+            "FUSE 上传完成: {} → {} ({}bytes)",
+            name,
+            file_uri,
+            file_size
+        );
 
         let _ = reply_tx.send(Ok(crate::platform::fuse::UploadResult {
             remote_uri: file_uri,
@@ -311,24 +428,28 @@ impl SyncEngine {
                 }
 
                 // 更新 DB mapping
-                let _ = self.db.upsert_file_mapping(&FileMapping {
-                    id: 0,
-                    sync_root_id: root_id,
-                    local_path: std::path::PathBuf::from(relative_path),
-                    remote_uri: remote_uri.clone(),
-                    remote_file_id: remote_entry.file_id.clone(),
-                    local_hash: None,
-                    remote_hash: remote_entry.hash.clone(),
-                    local_mtime: None,
-                    remote_mtime: Some(remote_entry.mtime_ms),
-                    local_size: None,
-                    remote_size: Some(0),
-                    sync_status: SyncFileStatus::Synced,
-                    is_placeholder: false,
-                }).await;
+                let _ = self
+                    .db
+                    .upsert_file_mapping(&FileMapping {
+                        id: 0,
+                        sync_root_id: root_id,
+                        local_path: std::path::PathBuf::from(relative_path),
+                        remote_uri: remote_uri.clone(),
+                        remote_file_id: remote_entry.file_id.clone(),
+                        local_hash: None,
+                        remote_hash: remote_entry.hash.clone(),
+                        local_mtime: None,
+                        remote_mtime: Some(remote_entry.mtime_ms),
+                        local_size: None,
+                        remote_size: Some(0),
+                        sync_status: SyncFileStatus::Synced,
+                        is_placeholder: false,
+                    })
+                    .await;
 
                 // 抑制 SSE 回弹
-                self.suppress_paths.insert(relative_path.to_string(), std::time::Instant::now());
+                self.suppress_paths
+                    .insert(relative_path.to_string(), std::time::Instant::now());
 
                 tracing::info!("FUSE 目录创建成功: {} → {}", name, remote_uri);
                 let _ = reply_tx.send(Ok(()));
@@ -363,10 +484,14 @@ impl SyncEngine {
         match self.api.delete_files(&[remote_uri]).await {
             Ok(()) => {
                 // 删除 DB mapping
-                let _ = self.db.delete_mapping_by_remote_uri(&root_id, remote_uri).await;
+                let _ = self
+                    .db
+                    .delete_mapping_by_remote_uri(&root_id, remote_uri)
+                    .await;
 
                 // 抑制 SSE 回弹
-                self.suppress_paths.insert(relative_path.to_string(), std::time::Instant::now());
+                self.suppress_paths
+                    .insert(relative_path.to_string(), std::time::Instant::now());
 
                 tracing::info!("FUSE 删除成功: {}", name);
                 let _ = reply_tx.send(Ok(()));
@@ -424,7 +549,9 @@ impl SyncEngine {
                 format!("{}/{}", config.remote_root, new_parent_rel)
             };
             tracing::info!("FUSE 移动: {} → {}", old_remote_uri, dst_uri);
-            self.api.move_files(&[old_remote_uri], &dst_uri, false).await
+            self.api
+                .move_files(&[old_remote_uri], &dst_uri, false)
+                .await
         };
 
         match result {
@@ -441,18 +568,28 @@ impl SyncEngine {
                         }
                     };
                     if let Some(ref fuse) = *adapter {
-                        fuse.inode_store().update_remote_uri(_inode, &new_remote_uri);
+                        fuse.inode_store()
+                            .update_remote_uri(_inode, &new_remote_uri);
                     }
                 }
 
                 // 更新 DB mapping
-                let _ = self.db.update_mapping_remote_uri(&root_id, old_remote_uri, &new_remote_uri).await;
+                let _ = self
+                    .db
+                    .update_mapping_remote_uri(&root_id, old_remote_uri, &new_remote_uri)
+                    .await;
 
                 // 抑制 SSE 回弹
-                self.suppress_paths.insert(old_relative_path.to_string(), std::time::Instant::now());
-                self.suppress_paths.insert(new_relative_path.to_string(), std::time::Instant::now());
+                self.suppress_paths
+                    .insert(old_relative_path.to_string(), std::time::Instant::now());
+                self.suppress_paths
+                    .insert(new_relative_path.to_string(), std::time::Instant::now());
 
-                tracing::info!("FUSE 重命名/移动成功: {} → {}", old_relative_path, new_relative_path);
+                tracing::info!(
+                    "FUSE 重命名/移动成功: {} → {}",
+                    old_relative_path,
+                    new_relative_path
+                );
                 let _ = reply_tx.send(Ok(()));
             }
             Err(e) => {

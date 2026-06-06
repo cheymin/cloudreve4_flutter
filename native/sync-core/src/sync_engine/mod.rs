@@ -1,12 +1,12 @@
-mod initial_sync;
-mod continuous_sync;
-mod local_events;
-mod remote_events;
 mod album;
-#[cfg(feature = "windows-cfapi")]
-mod wcf;
+mod continuous_sync;
 #[cfg(feature = "linux-fuse")]
 mod fuse;
+mod initial_sync;
+mod local_events;
+mod remote_events;
+#[cfg(feature = "windows-cfapi")]
+mod wcf;
 
 // 非 WCF/FUSE feature 下的 stub 方法，供 remote_events.rs 编译通过
 #[cfg(not(any(feature = "windows-cfapi", feature = "linux-fuse")))]
@@ -33,9 +33,9 @@ use crate::worker::WorkerPool;
 use dashmap::DashMap;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 #[cfg(feature = "windows-cfapi")]
 use tokio::sync::mpsc;
+use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
 pub struct SyncEngine {
@@ -73,7 +73,8 @@ pub struct SyncEngine {
     fuse_adapter: std::sync::Mutex<Option<Arc<crate::platform::fuse::FusePlatformAdapter>>>,
     /// FUSE 请求接收端（在适配器初始化时提取）
     #[cfg(feature = "linux-fuse")]
-    fuse_request_rx: std::sync::Mutex<Option<tokio::sync::mpsc::Receiver<crate::platform::fuse::FuseRequest>>>,
+    fuse_request_rx:
+        std::sync::Mutex<Option<tokio::sync::mpsc::Receiver<crate::platform::fuse::FuseRequest>>>,
     /// FUSE 水合缓存：uri → 已下载的完整文件数据
     #[cfg(feature = "linux-fuse")]
     hydration_cache: Arc<DashMap<String, (Vec<u8>, std::time::Instant)>>,
@@ -81,11 +82,21 @@ pub struct SyncEngine {
 
 impl SyncEngine {
     pub async fn new(config: SyncConfig) -> Result<Self> {
-        let db_path = config.data_dir.join("sync_core").join("datas").join(".sync_db.sqlite3");
+        let db_path = config
+            .data_dir
+            .join("sync_core")
+            .join("datas")
+            .join(".sync_db.sqlite3");
         let db_path_clone = db_path.clone();
-        let db = Arc::new(tokio::task::spawn_blocking(move || SyncDb::open(&db_path_clone)).await??);
+        let db =
+            Arc::new(tokio::task::spawn_blocking(move || SyncDb::open(&db_path_clone)).await??);
 
-        let api = Arc::new(ApiClient::new(&config.base_url, &config.access_token, &config.refresh_token, &config.client_id));
+        let api = Arc::new(ApiClient::new(
+            &config.base_url,
+            &config.access_token,
+            &config.refresh_token,
+            &config.client_id,
+        ));
 
         let conflict = ConflictResolver::new(config.conflict_strategy.clone());
 
@@ -232,8 +243,12 @@ impl SyncEngine {
         if delete_local_files {
             let local_root = self.config.read().await.local_root.clone();
             if local_root.exists() {
-                let entries = std::fs::read_dir(&local_root)
-                    .map_err(|_| crate::errors::SyncError::DiskFull { needed: 0, available: 0 })?;
+                let entries = std::fs::read_dir(&local_root).map_err(|_| {
+                    crate::errors::SyncError::DiskFull {
+                        needed: 0,
+                        available: 0,
+                    }
+                })?;
                 for entry in entries.flatten() {
                     let path = entry.path();
                     if path.is_dir() {
@@ -260,7 +275,11 @@ impl SyncEngine {
     }
 
     pub async fn status(&self) -> SyncStatusSnapshot {
-        let state = self.state.try_read().map(|g| g.clone()).unwrap_or(SyncState::Idle);
+        let state = self
+            .state
+            .try_read()
+            .map(|g| g.clone())
+            .unwrap_or(SyncState::Idle);
 
         let (synced_files, total_files) = match &state {
             SyncState::InitialSync { progress } => {
@@ -327,7 +346,11 @@ impl SyncEngine {
         }
         tracing::info!(
             "同步配置已更新: 模式={}, 冲突策略={}, WCF删除={}, 并发={}, 带宽限制={:?}",
-            new_mode, new_conflict, new_wcf_delete, new_max_concurrent, new_bandwidth
+            new_mode,
+            new_conflict,
+            new_wcf_delete,
+            new_max_concurrent,
+            new_bandwidth
         );
         Ok(())
     }
@@ -336,7 +359,10 @@ impl SyncEngine {
         self.api.update_token(token).await;
     }
 
-    pub async fn register_event_sink(&self, sink: crate::frb_generated::StreamSink<crate::api::ffi_types::SyncEventFfi>) {
+    pub async fn register_event_sink(
+        &self,
+        sink: crate::frb_generated::StreamSink<crate::api::ffi_types::SyncEventFfi>,
+    ) {
         self.event_sink.register(sink).await;
     }
 
@@ -383,42 +409,46 @@ impl SyncEngine {
         };
 
         let pool = self.db.read_pool();
-        let result = tokio::task::spawn_blocking(move || -> Result<HashMap<String, FileMapping>> {
-            let conn = pool.get()?;
-            let mut stmt = conn.prepare(
-                "SELECT id, sync_root_id, local_path, remote_uri, remote_file_id,
+        let result =
+            tokio::task::spawn_blocking(move || -> Result<HashMap<String, FileMapping>> {
+                let conn = pool.get()?;
+                let mut stmt = conn.prepare(
+                    "SELECT id, sync_root_id, local_path, remote_uri, remote_file_id,
                         local_hash, remote_hash, local_mtime, remote_mtime,
                         local_size, remote_size, sync_status, is_placeholder
-                 FROM file_mapping WHERE sync_root_id = ?1"
-            )?;
+                 FROM file_mapping WHERE sync_root_id = ?1",
+                )?;
 
-            let mappings: HashMap<String, FileMapping> = stmt.query_map(
-                rusqlite::params![root_id],
-                |row| {
-                    let local_path: String = row.get(2)?;
-                    Ok((
-                        crate::utils::normalize_path(&local_path),
-                        FileMapping {
-                            id: row.get(0)?,
-                            sync_root_id: row.get(1)?,
-                            local_path: std::path::PathBuf::from(local_path),
-                            remote_uri: row.get(3)?,
-                            remote_file_id: row.get(4)?,
-                            local_hash: row.get(5)?,
-                            remote_hash: row.get(6)?,
-                            local_mtime: row.get(7)?,
-                            remote_mtime: row.get(8)?,
-                            local_size: row.get(9)?,
-                            remote_size: row.get(10)?,
-                            sync_status: crate::diff::parse_sync_status_from_str(&row.get::<_, String>(11)?),
-                            is_placeholder: row.get::<_, i32>(12)? != 0,
-                        },
-                    ))
-                },
-            )?.filter_map(|r| r.ok()).collect();
+                let mappings: HashMap<String, FileMapping> = stmt
+                    .query_map(rusqlite::params![root_id], |row| {
+                        let local_path: String = row.get(2)?;
+                        Ok((
+                            crate::utils::normalize_path(&local_path),
+                            FileMapping {
+                                id: row.get(0)?,
+                                sync_root_id: row.get(1)?,
+                                local_path: std::path::PathBuf::from(local_path),
+                                remote_uri: row.get(3)?,
+                                remote_file_id: row.get(4)?,
+                                local_hash: row.get(5)?,
+                                remote_hash: row.get(6)?,
+                                local_mtime: row.get(7)?,
+                                remote_mtime: row.get(8)?,
+                                local_size: row.get(9)?,
+                                remote_size: row.get(10)?,
+                                sync_status: crate::diff::parse_sync_status_from_str(
+                                    &row.get::<_, String>(11)?,
+                                ),
+                                is_placeholder: row.get::<_, i32>(12)? != 0,
+                            },
+                        ))
+                    })?
+                    .filter_map(|r| r.ok())
+                    .collect();
 
-            Ok(mappings)
-        }).await??;
+                Ok(mappings)
+            })
+            .await??;
 
         Ok(result)
     }
