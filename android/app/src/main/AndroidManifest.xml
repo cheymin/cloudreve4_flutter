@@ -47,6 +47,12 @@
             android:foregroundServiceType="dataSync"
             android:stopWithTask="false" />
 
+        <service
+            android:name=".AutoBackupService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"
+            android:stopWithTask="true" />
+
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />

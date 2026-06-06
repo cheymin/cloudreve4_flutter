@@ -16,7 +16,9 @@ import 'file_preferences_page.dart';
 import 'app_settings_page.dart';
 import 'credit_history_page.dart';
 import 'quick_access_settings_page.dart';
+import 'auto_backup_settings_page.dart';
 import '../../../router/app_router.dart';
+import 'dart:io';
 
 /// 设置主页
 class SettingsPage extends StatefulWidget {
@@ -112,6 +114,13 @@ class _SettingsPageState extends State<SettingsPage> {
                 subtitle: '本地与云端文件自动同步',
                 onTap: () => Navigator.of(context).pushNamed(RouteNames.syncSettings),
               ),
+              if (Platform.isAndroid)
+                _SettingsTile(
+                  icon: Icons.backup_outlined,
+                  title: '自动备份',
+                  subtitle: '自动备份手机照片到云端',
+                  onTap: () => _navigateTo(context, const AutoBackupSettingsPage()),
+                ),
               _SettingsTile(
                 icon: Icons.apps_outlined,
                 title: '快捷入口',

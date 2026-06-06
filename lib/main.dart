@@ -26,6 +26,8 @@ import 'presentation/providers/sync_provider.dart';
 import 'presentation/providers/theme_provider.dart';
 import 'services/upload_service.dart';
 import 'services/upload_foreground_service.dart';
+import 'services/auto_backup_foreground_service.dart';
+import 'services/auto_backup_service.dart';
 import 'services/android_compat_service.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'services/api_service.dart';
@@ -151,6 +153,15 @@ void main() async {
 
   // 初始化上传前台服务配置（Android 后台上传通知）。
   await UploadForegroundService.initialize();
+
+  // 初始化自动备份前台服务配置（Android 后台自动备份）。
+  AutoBackupForegroundService.initCommunicationPort();
+  await AutoBackupForegroundService.initialize();
+
+  // 初始化自动备份服务
+  if (Platform.isAndroid) {
+    await AutoBackupService.instance.init();
+  }
 
   // Android 15+ targetSdk 35/36 会默认 Edge-to-edge；这里显式开启，
   // 并由各 Scaffold / SafeArea 处理系统栏避让。
