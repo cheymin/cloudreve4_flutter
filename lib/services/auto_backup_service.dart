@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:battery_plus/battery_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../core/utils/app_logger.dart';
@@ -100,6 +102,11 @@ class AutoBackupService {
   bool _isBackingUp = false;
   Set<String> _backedUpPhotos = {};
 
+  final Battery _battery = Battery();
+  final Connectivity _connectivity = Connectivity();
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+  StreamSubscription<BatteryState>? _batterySub;
+
   /// 已备份的照片路径集合
   Set<String> get backedUpPhotos => Set.unmodifiable(_backedUpPhotos);
 
@@ -187,6 +194,25 @@ class AutoBackupService {
       return false;
     }
 
+    // 监听网络状态变化（WiFi 连上时自动触发备份）
+    _connectivitySub?.cancel();
+    _connectivitySub = _connectivity.onConnectivityChanged.listen((result) {
+      if (_config.wifiOnly && result.contains(ConnectivityResult.wifi)) {
+        AppLogger.d('WiFi 已连接，触发自动备份');
+        _checkAndBackup();
+      }
+    });
+
+    // 监听充电状态变化（开始充电时自动触发备份）
+    _batterySub?.cancel();
+    _batterySub = _battery.onBatteryStateChanged.listen((state) {
+      if (_config.chargingOnly &&
+          (state == BatteryState.charging || state == BatteryState.full)) {
+        AppLogger.d('已开始充电，触发自动备份');
+        _checkAndBackup();
+      }
+    });
+
     // 启动定期检查（每5分钟检查一次新照片）
     _periodicCheckTimer?.cancel();
     _periodicCheckTimer = Timer.periodic(
@@ -210,6 +236,10 @@ class AutoBackupService {
     _periodicCheckTimer = null;
     _scheduledBackupTimer?.cancel();
     _scheduledBackupTimer = null;
+    _connectivitySub?.cancel();
+    _connectivitySub = null;
+    _batterySub?.cancel();
+    _batterySub = null;
 
     await AutoBackupForegroundService.stop();
     AppLogger.i('自动备份已停止');
@@ -284,9 +314,36 @@ class AutoBackupService {
 
   /// 检查备份条件
   Future<bool> _checkConditions() async {
-    // TODO: 实际检查 WiFi 和充电状态
-    // 这里简化处理，实际需要使用 connectivity_plus 和 battery_plus 插件
-    return true;
+    if (!Platform.isAndroid) return false;
+
+    try {
+      // 检查 WiFi 条件
+      if (_config.wifiOnly) {
+        final result = await _connectivity.checkConnectivity();
+        final isWifi = result.contains(ConnectivityResult.wifi);
+        if (!isWifi) {
+          AppLogger.d('非 WiFi 环境，跳过备份');
+          return false;
+        }
+      }
+
+      // 检查充电条件
+      if (_config.chargingOnly) {
+        final batteryState = await _battery.batteryState;
+        final isCharging = batteryState == BatteryState.charging ||
+            batteryState == BatteryState.full;
+        if (!isCharging) {
+          AppLogger.d('未在充电，跳过备份');
+          return false;
+        }
+      }
+
+      return true;
+    } catch (e) {
+      AppLogger.w('检查备份条件失败: $e');
+      // 出错时默认允许备份，避免误拦截
+      return true;
+    }
   }
 
   /// 执行备份

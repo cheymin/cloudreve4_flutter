@@ -27,13 +27,16 @@ on:
         description: 'Release tag (e.g., v1.0.0)'
         required: false
         type: string
+  push:
+    tags:
+      - 'v*'
 
 env:
   FLUTTER_VERSION: '3.41.6'
 
 jobs:
   build-android:
-    if: ${{ inputs.build_android }}
+    if: ${{ github.event_name == 'push' || inputs.build_android }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -71,27 +74,35 @@ jobs:
           flutter_rust_bridge_codegen generate
 
       - name: Build APK
-        run: flutter build apk --release
+        run: flutter build apk --release --split-per-abi
 
       - name: Build App Bundle (AAB)
         run: flutter build appbundle --release
 
-      - name: Rename APK
+      - name: Rename artifacts
         run: |
-          mv build/app/outputs/flutter-apk/app-release.apk cloudreve4_flutter-${{ github.ref_name }}-android.apk || true
-          mv build/app/outputs/bundle/release/app-release.aab cloudreve4_flutter-${{ github.ref_name }}-android.aab || true
+          TAG="${{ github.ref_name }}"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            TAG="${TAG#v}"
+          else
+            TAG="${{ inputs.release_tag }}"
+          fi
+          mkdir -p release-artifacts
+          for f in build/app/outputs/flutter-apk/*.apk; do
+            basename=$(basename "$f")
+            mv "$f" "release-artifacts/cloudreve4_flutter-${TAG}-android-${basename}"
+          done
+          mv build/app/outputs/bundle/release/app-release.aab "release-artifacts/cloudreve4_flutter-${TAG}-android.aab" || true
 
-      - name: Upload APK artifact
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: android-apk
-          path: |
-            "*.apk"
-            "*.aab"
-          retention-days: 30
+          path: release-artifacts/
+          retention-days: 60
 
   build-windows:
-    if: ${{ inputs.build_windows }}
+    if: ${{ github.event_name == 'push' || inputs.build_windows }}
     runs-on: windows-latest
     steps:
       - name: Checkout repository
@@ -126,20 +137,28 @@ jobs:
       - name: Build Windows
         run: flutter build windows --release
 
-      - name: Create ZIP archive
+      - name: Package ZIP
+        shell: bash
         run: |
+          TAG="${{ github.ref_name }}"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            TAG="${TAG#v}"
+          else
+            TAG="${{ inputs.release_tag }}"
+          fi
+          mkdir -p release-artifacts
           cd build/windows/x64/runner/Release
-          Compress-Archive -Path * -DestinationPath ../../../../../cloudreve4_flutter-${{ github.ref_name }}-windows.zip
+          7z a -tzip "../../../../../release-artifacts/cloudreve4_flutter-${TAG}-windows.zip" "*"
 
-      - name: Upload Windows artifact
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-exe
-          path: "*.zip"
-          retention-days: 30
+          path: release-artifacts/
+          retention-days: 60
 
   build-linux:
-    if: ${{ inputs.build_linux }}
+    if: ${{ github.event_name == 'push' || inputs.build_linux }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -178,20 +197,27 @@ jobs:
       - name: Build Linux
         run: flutter build linux --release
 
-      - name: Create TAR.GZ archive
+      - name: Package TAR.GZ
         run: |
+          TAG="${{ github.ref_name }}"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            TAG="${TAG#v}"
+          else
+            TAG="${{ inputs.release_tag }}"
+          fi
+          mkdir -p release-artifacts
           cd build/linux/x64/release/bundle
-          tar -czvf ../../../../../cloudreve4_flutter-${{ github.ref_name }}-linux.tar.gz *
+          tar -czvf "../../../../../release-artifacts/cloudreve4_flutter-${TAG}-linux.tar.gz" *
 
-      - name: Upload Linux artifact
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: linux-app
-          path: "*.tar.gz"
-          retention-days: 30
+          path: release-artifacts/
+          retention-days: 60
 
   build-web:
-    if: ${{ inputs.build_web }}
+    if: ${{ github.event_name == 'push' || inputs.build_web }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -210,56 +236,75 @@ jobs:
       - name: Build Web
         run: flutter build web --release
 
-      - name: Create ZIP archive
+      - name: Package ZIP
         run: |
+          TAG="${{ github.ref_name }}"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            TAG="${TAG#v}"
+          else
+            TAG="${{ inputs.release_tag }}"
+          fi
+          mkdir -p release-artifacts
           cd build/web
-          zip -r ../../cloudreve4_flutter-${{ github.ref_name }}-web.zip *
+          zip -r "../../release-artifacts/cloudreve4_flutter-${TAG}-web.zip" *
 
-      - name: Upload Web artifact
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: web-app
-          path: "*.zip"
-          retention-days: 30
+          path: release-artifacts/
+          retention-days: 60
 
   create-release:
     needs: [build-android, build-windows, build-linux, build-web]
-    if: ${{ inputs.release_tag != '' && always() }}
+    if: ${{ always() && (github.event_name == 'push' || inputs.release_tag != '') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Check Tag (push event)
+        if: github.event_name == 'push'
+        run: echo "RELEASE_TAG=${GITHUB_REF_NAME}" >> $GITHUB_ENV
+
+      - name: Check Tag (dispatch event)
+        if: github.event_name != 'push'
+        run: echo "RELEASE_TAG=${{ inputs.release_tag }}" >> $GITHUB_ENV
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+          merge-multiple: true
 
-      - name: Display structure of downloaded files
-        run: ls -R artifacts
+      - name: List artifacts
+        run: ls -lhR artifacts/
+
+      - name: Generate Release Notes
+        run: |
+          cat > release-notes.md << 'RELEOF'
+          ## Cloudreve4 Flutter ${{ env.RELEASE_TAG }}
+
+          ### ✨ 下载说明
+          - **Android**: 下载 `*-android-*.apk` 文件安装
+          - **Windows**: 下载 `*-windows.zip` 文件解压后运行
+          - **Linux**: 下载 `*-linux.tar.gz` 文件解压后运行
+          - **Web**: 下载 `*-web.zip` 文件部署到 Web 服务器
+
+          ### 🔄 更新内容
+          请查看 [CHANGELOG](https://github.com/${{ github.repository }}/commits/${{ env.RELEASE_TAG }}) 了解此版本的详细更新。
+          RELEOF
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.release_tag }}
-          name: Release ${{ inputs.release_tag }}
-          body: |
-            ## Cloudreve4 Flutter ${{ inputs.release_tag }}
-
-            ### 下载说明
-            - **Android**: 下载 `.apk` 文件安装
-            - **Windows**: 下载 `.zip` 文件解压后运行 `cloudreve4_flutter.exe`
-            - **Linux**: 下载 `.tar.gz` 文件解压后运行 `cloudreve4_flutter`
-            - **Web**: 下载 `.zip` 文件部署到 Web 服务器
-
-            ### 更新日志
-            请查看 [README.md](https://github.com/${{ github.repository }}#readme) 了解功能详情。
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Release ${{ env.RELEASE_TAG }}
+          body_path: release-notes.md
           files: |
-            artifacts/**/*.apk
-            artifacts/**/*.aab
-            artifacts/**/*.zip
-            artifacts/**/*.tar.gz
+            artifacts/*.apk
+            artifacts/*.aab
+            artifacts/*.zip
+            artifacts/*.tar.gz
+          generate_release_notes: true
           draft: false
           prerelease: false

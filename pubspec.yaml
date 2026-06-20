@@ -98,7 +98,9 @@ dependencies:
   flutter_inappwebview: ^6.2.0-beta.3
   ffi: ^2.1.0
 
-  # 桌面端
+  # 自动备份
+  connectivity_plus: ^6.0.3
+  battery_plus: ^6.0.1
   window_manager: ^0.5.0
   tray_manager: ^0.5.2
   flutter_single_instance: ^1.7.0
