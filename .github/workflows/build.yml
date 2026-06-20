@@ -70,7 +70,7 @@ jobs:
         run: |
           cd native
           cargo build --release
-          flutter_rust_bridge_codegen generate
+          flutter_rust_bridge_codegen generate --config frb.yaml
 
       - name: Build APK
         run: flutter build apk --release --split-per-abi
@@ -130,7 +130,7 @@ jobs:
         run: |
           cd native
           cargo build --release
-          flutter_rust_bridge_codegen generate
+          flutter_rust_bridge_codegen generate --config frb.yaml
 
       - name: Build Windows
         run: flutter build windows --release
@@ -189,7 +189,7 @@ jobs:
         run: |
           cd native
           cargo build --release
-          flutter_rust_bridge_codegen generate
+          flutter_rust_bridge_codegen generate --config frb.yaml
 
       - name: Build Linux
         run: flutter build linux --release
@@ -214,7 +214,7 @@ jobs:
           retention-days: 60
 
   build-web:
-    if: ${{ github.event_name == 'push' || inputs.build_web }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_web }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -253,7 +253,7 @@ jobs:
           retention-days: 60
 
   create-release:
-    needs: [build-android, build-windows, build-linux, build-web]
+    needs: [build-android, build-windows, build-linux]
     if: ${{ always() && (github.event_name == 'push' || inputs.release_tag != '') }}
     runs-on: ubuntu-latest
     permissions:
